@@ -1,4 +1,4 @@
-﻿using System.Collections.ObjectModel;
+using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.Threading.Channels;
 using LibVLCSharp.Shared;
@@ -39,7 +39,14 @@ public sealed class PlaybackController : IDisposable
     private string? _error;
     private bool _videoVisible;
     private int _tickPending;
-    private int _disposed;
+    private int _disposed, _stopping;
+    private int _sourceOpenCount;
+    public int SourceOpenCount => Volatile.Read(ref _sourceOpenCount);
+    private readonly bool _enableDiagnostics;
+    private readonly bool _simulateVideoStartupStall;
+    private bool _softwareVideoFallback;
+    public bool UsedSoftwareVideoFallback => _softwareVideoFallback;
+    private long _lastPublishStamp;
     private IReadOnlyList<PlaybackDiagnostic> _diagnostics = Array.Empty<PlaybackDiagnostic>();
 
     public MediaPlayer VideoPlayer => _video.Player;
@@ -49,9 +56,11 @@ public sealed class PlaybackController : IDisposable
     public event Action<PlaybackStatus>? StatusChanged;
     public event Action<bool>? VideoVisibilityChanged;
 
-    public PlaybackController(MediaEngine engine)
+    public PlaybackController(MediaEngine engine, bool enableDiagnostics = false, bool simulateVideoStartupStall = false)
     {
         _engine = engine;
+        _enableDiagnostics = enableDiagnostics;
+        _simulateVideoStartupStall = simulateVideoStartupStall;
         _video = new PlayerSlot(this, new MediaPlayer(engine.LibVLC), true, string.Empty);
         VideoPlayer.EnableKeyInput = false;
         VideoPlayer.EnableMouseInput = false;
@@ -69,17 +78,21 @@ public sealed class PlaybackController : IDisposable
         });
     }
 
-    public Task SetProjectAsync(ProjectDocument project)
+    public Task SetProjectAsync(ProjectDocument project, IReadOnlySet<string>? offlineAssetIds = null)
     {
-        var snapshot = ProjectSnapshot.From(project);
+        var snapshot = ProjectSnapshot.From(project, offlineAssetIds);
         return Enqueue(async token =>
         {
             Freeze();
             _playing = false;
-            _project = snapshot;
+            _project = offlineAssetIds is not null ? snapshot : snapshot with { Assets = snapshot.Assets.ToDictionary(p => p.Key, p => p.Value with { Offline = !System.IO.File.Exists(p.Value.FilePath) }) };
             _basePosition = Math.Clamp(_basePosition, 0, _project.Duration);
             _error = null;
-            await ReconcileAsync(true, token).ConfigureAwait(false);
+            var desired = ActiveAt(_basePosition);
+            bool reposition = !Matches(_video, desired.FirstOrDefault(item => item.Track.Kind == TrackKind.Video)) ||
+                desired.Count(item => item.Track.Kind == TrackKind.Audio) != _audio.Count ||
+                desired.Where(item => item.Track.Kind == TrackKind.Audio).Any(item => !_audio.TryGetValue(item.Track.Id, out var slot) || !Matches(slot, item));
+            await ReconcileAsync(reposition, token).ConfigureAwait(false);
         }, true);
     }
 
@@ -147,7 +160,7 @@ public sealed class PlaybackController : IDisposable
 
     private Task Enqueue(Func<CancellationToken, Task> execute, bool supersede = false)
     {
-        if (Volatile.Read(ref _disposed) != 0) return Task.FromException(new ObjectDisposedException(nameof(PlaybackController)));
+        if (Volatile.Read(ref _disposed) != 0 || Volatile.Read(ref _stopping) != 0) return Task.FromException(new ObjectDisposedException(nameof(PlaybackController)));
         if (supersede)
             lock (_operationLock) _activeOperation?.Cancel();
         var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -179,7 +192,7 @@ public sealed class PlaybackController : IDisposable
                 }
                 catch (OperationCanceledException) when (operation.IsCancellationRequested)
                 {
-                    Freeze();
+                    if (!_lifetime.IsCancellationRequested) Freeze();
                     // A newer transport request owns the next position/play state.
                 }
                 catch (Exception exception)
@@ -193,7 +206,7 @@ public sealed class PlaybackController : IDisposable
                 {
                     lock (_operationLock) if (ReferenceEquals(_activeOperation, operation)) _activeOperation = null;
                     _busy = false;
-                    Publish();
+                    if (!_lifetime.IsCancellationRequested) Publish(work.IsTick);
                     if (failure is null) work.Completion?.TrySetResult();
                     else work.Completion?.TrySetException(failure);
                 }
@@ -206,7 +219,7 @@ public sealed class PlaybackController : IDisposable
             _clock.Stop();
             foreach (var slot in _audio.Values) slot.Dispose();
             _audio.Clear();
-            _video.Dispose();
+            _video.Unload(); // Keep its HWND binding valid until the UI detaches it.
             while (_commands.Reader.TryRead(out var pending))
                 pending.Completion?.TrySetException(new ObjectDisposedException(nameof(PlaybackController)));
         }
@@ -260,12 +273,13 @@ public sealed class PlaybackController : IDisposable
         token.ThrowIfCancellationRequested();
         var desired = ActiveAt(_basePosition);
         var video = desired.FirstOrDefault(item => item.Track.Kind == TrackKind.Video);
-        if (!Matches(_video, video))
+        if (!MatchesSource(_video, video))
         {
             SetVideoVisible(false);
             _video.Unload();
             if (video is not null) await OpenAsync(_video, video, token).ConfigureAwait(false);
         }
+        if (video is not null) { _video.Clip = video.Clip; _video.Asset = video.Asset; }
         var audioItems = desired.Where(item => item.Track.Kind == TrackKind.Audio).ToDictionary(item => item.Track.Id);
         foreach (var trackId in _audio.Keys.Where(id => !audioItems.ContainsKey(id)).ToArray())
         {
@@ -279,11 +293,12 @@ public sealed class PlaybackController : IDisposable
                 slot = new PlayerSlot(this, new MediaPlayer(_engine.LibVLC), false, item.Track.Id);
                 _audio.Add(item.Track.Id, slot);
             }
-            if (!Matches(slot, item))
+            if (!MatchesSource(slot, item))
             {
                 slot.Unload();
                 await OpenAsync(slot, item, token).ConfigureAwait(false);
             }
+            slot.Clip = item.Clip; slot.Asset = item.Asset;
         }
         foreach (var slot in Slots().Where(slot => slot.Clip is not null))
         {
@@ -310,13 +325,32 @@ public sealed class PlaybackController : IDisposable
 
     private async Task OpenAsync(PlayerSlot slot, ActiveItem item, CancellationToken token)
     {
+        try { await OpenSourceAsync(slot, item, token).ConfigureAwait(false); }
+        catch (TimeoutException) when (slot.IsVideo && !_softwareVideoFallback && !token.IsCancellationRequested)
+        {
+            // Some drivers initialize one hardware frame and then stall both video
+            // and embedded audio. Retry once using the CPU, keeping the UI alive.
+            slot.Unload();
+            _softwareVideoFallback = true;
+            slot.Player.EnableHardwareDecoding = false;
+            await OpenSourceAsync(slot, item, token).ConfigureAwait(false);
+        }
+    }
+    private async Task OpenSourceAsync(PlayerSlot slot, ActiveItem item, CancellationToken token)
+    {
         if (!System.IO.File.Exists(item.Asset.FilePath))
             throw new System.IO.FileNotFoundException($"{item.Asset.Name} is missing. Relink it in the media library.", item.Asset.FilePath);
+        Interlocked.Increment(ref _sourceOpenCount);
         slot.Clip = item.Clip;
         slot.Asset = item.Asset;
         slot.TrackId = item.Track.Id;
         slot.Media = new LibVLCSharp.Shared.Media(_engine.LibVLC, item.Asset.FilePath, FromType.FromPath);
         slot.Media.AddOption(":file-caching=200");
+        if (slot.IsVideo && _softwareVideoFallback)
+        {
+            slot.Media.AddOption(":avcodec-hw=none");
+            slot.Media.AddOption(":avcodec-threads=" + Math.Clamp(Environment.ProcessorCount / 2, 2, 8));
+        }
         slot.Media.AddOption(":play-and-pause");
         slot.Media.AddOption(":no-sub-autodetect-file");
         if (!slot.IsVideo) slot.Media.AddOption(":no-video");
@@ -332,12 +366,13 @@ public sealed class PlaybackController : IDisposable
             throw new InvalidOperationException($"VLC could not open {item.Asset.Name}.");
         await WaitUntilAsync(() =>
         {
+            if (slot.IsVideo && _simulateVideoStartupStall && !_softwareVideoFallback) return false;
             var statistics = slot.Media!.Statistics;
             return slot.Player.CanPause &&
                 (slot.Player.State is VLCState.Playing or VLCState.Paused) &&
                 (!slot.IsVideo || (slot.Player.VoutCount > 0 && statistics.DisplayedPictures > 0)) &&
                 (!item.Asset.HasAudio || (statistics.DecodedAudio > 0 && statistics.PlayedAudioBuffers > 0));
-        }, slot, TimeSpan.FromSeconds(12), token,
+        }, slot, slot.IsVideo && !_softwareVideoFallback ? TimeSpan.FromMilliseconds(_simulateVideoStartupStall ? 100 : 4000) : TimeSpan.FromSeconds(12), token,
             $"Opening {item.Asset.Name} timed out before media output was ready.").ConfigureAwait(false);
         var pauseRetry = Stopwatch.StartNew();
         await WaitUntilAsync(() =>
@@ -475,6 +510,9 @@ public sealed class PlaybackController : IDisposable
             !asset.Offline && position - clip.StartMs < asset.DurationMs && _project.Tracks.ContainsKey(clip.TrackId))
         .Select(clip => new ActiveItem(clip, _project.Assets[clip.AssetId], _project.Tracks[clip.TrackId])).ToList();
 
+    private static bool MatchesSource(PlayerSlot slot, ActiveItem? item) => item is null ? slot.Clip is null :
+        slot.Ready && slot.Clip?.Id == item.Clip.Id && slot.Asset?.FilePath == item.Asset.FilePath &&
+        slot.Asset.DurationMs == item.Asset.DurationMs && slot.Asset.HasAudio == item.Asset.HasAudio && slot.TrackId == item.Track.Id;
     private static bool Matches(PlayerSlot slot, ActiveItem? item) => item is null ? slot.Clip is null :
         slot.Ready && slot.Clip?.Id == item.Clip.Id && slot.Clip.StartMs == item.Clip.StartMs &&
         slot.Asset?.FilePath == item.Asset.FilePath && slot.TrackId == item.Track.Id;
@@ -488,11 +526,16 @@ public sealed class PlaybackController : IDisposable
                 try { handler(visible); } catch { /* UI subscribers must not interrupt native cleanup. */ }
     }
 
-    private void Publish()
+    private void Publish(bool throttle = false)
     {
+        long stamp = Stopwatch.GetTimestamp();
+        if (throttle && Stopwatch.GetElapsedTime(_lastPublishStamp, stamp).TotalMilliseconds < 100) return;
+        _lastPublishStamp = stamp;
         var position = CurrentPosition();
         Interlocked.Exchange(ref _publishedPosition, position);
         var now = Stopwatch.GetTimestamp();
+        if (_enableDiagnostics)
+        {
         var diagnostics = Slots().Where(slot => slot.Clip is not null).Select(slot =>
         {
             var statistics = slot.Media?.Statistics ?? default;
@@ -502,19 +545,29 @@ public sealed class PlaybackController : IDisposable
                 statistics.DecodedVideo, statistics.PlayedAudioBuffers, statistics.DisplayedPictures);
         }).ToArray();
         Volatile.Write(ref _diagnostics, new ReadOnlyCollection<PlaybackDiagnostic>(diagnostics));
+        }
         var status = new PlaybackStatus(position, _project.Duration, _playing, _busy, _error);
         if (StatusChanged is { } handlers)
             foreach (Action<PlaybackStatus> handler in handlers.GetInvocationList())
                 try { handler(status); } catch { /* A UI callback must not stop the transport worker. */ }
     }
 
+    /// <summary>Cancel queued work and stop native outputs while the UI still pumps the video HWND.</summary>
+    public Task StopForShutdownAsync()
+    {
+        if (Interlocked.Exchange(ref _stopping, 1) == 0)
+        {
+            _lifetime.Cancel();
+            _commands.Writer.TryComplete();
+        }
+        return _worker;
+    }
     public void Dispose()
     {
         if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
-        _lifetime.Cancel();
-        _commands.Writer.TryComplete();
-        _worker.GetAwaiter().GetResult();
+        StopForShutdownAsync().GetAwaiter().GetResult();
         _ticker.GetAwaiter().GetResult();
+        _video.Dispose();
         _lifetime.Dispose();
     }
 
@@ -527,10 +580,10 @@ public sealed class PlaybackController : IDisposable
         ClipData[] Clips, int MasterVolume, bool MasterMuted, long Duration)
     {
         public static ProjectSnapshot Empty => new(new(), new(), [], 100, false, 0);
-        public static ProjectSnapshot From(ProjectDocument project)
+        public static ProjectSnapshot From(ProjectDocument project, IReadOnlySet<string>? offlineAssetIds)
         {
             var assets = project.Assets.ToDictionary(asset => asset.Id, asset => new AssetData(asset.Id, asset.Name,
-                asset.FilePath, asset.DurationMs, asset.HasAudio, asset.IsOffline));
+                asset.FilePath, asset.DurationMs, asset.HasAudio, offlineAssetIds?.Contains(asset.Id) ?? false));
             var tracks = project.Tracks.ToDictionary(track => track.Id, track => new TrackData(track.Id, track.Kind,
                 Math.Clamp(track.Volume, 0, 100), track.IsMuted));
             var clips = project.Clips.Select(clip => new ClipData(clip.Id, clip.AssetId, clip.TrackId, clip.StartMs)).ToArray();

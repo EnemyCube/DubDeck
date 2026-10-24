@@ -23,18 +23,25 @@ public partial class MainWindow : Window
     private ResizeMode _savedResize;
     private WindowState _savedState;
     private Rect _savedBounds;
-    private bool _videoVisible, _hasOfflineSources, _preparing;
+    private bool _videoVisible, _hasOfflineSources, _preparing, _closeReady;
+    private int _closeRequests;
     private readonly SemaphoreSlim _editLock = new(1, 1);
     private CancellationTokenSource? _seekCts;
+    private PlaybackStatus? _latestStatus;
+    private readonly System.Windows.Threading.DispatcherTimer _uiTimer;
+    private string _trackHeaderSignature = "";
     public MainWindow(string? startupPath = null)
     {
         InitializeComponent();
         _startupPath = startupPath;
         _engine = new MediaEngine();
-        _playback = new PlaybackController(_engine);
+        _playback = new PlaybackController(_engine, enableDiagnostics: App.SmokeTestDirectory is not null || App.PerformanceTestDirectory is not null, simulateVideoStartupStall: App.SimulateVideoStartupStall);
         VideoHost.MediaPlayer = _playback.VideoPlayer;
-        _playback.StatusChanged += status => Dispatcher.BeginInvoke(() => ShowStatus(status));
-        _playback.VideoVisibilityChanged += visible => Dispatcher.BeginInvoke(() => SetVideoVisible(visible));
+        _playback.StatusChanged += status => { if (!_closing) Volatile.Write(ref _latestStatus, status); };
+        _uiTimer = new System.Windows.Threading.DispatcherTimer(System.Windows.Threading.DispatcherPriority.Background, Dispatcher) { Interval = TimeSpan.FromMilliseconds(100) };
+        _uiTimer.Tick += (_, _) => { var latest = Interlocked.Exchange(ref _latestStatus, null); if (latest is not null && !_closing) ShowStatus(latest); };
+        _uiTimer.Start();
+        _playback.VideoVisibilityChanged += visible => { if (!_closing) Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Background, () => { if (!_closing) SetVideoVisible(visible); }); };
         Timeline.SeekRequested += position => QueueSeek(position);
         Timeline.EditStarted += () => Run(() => _playback.PauseAsync());
         Timeline.ClipMoved += (id, track, start) => Run(() => MoveClipAsync(id, track, start));
@@ -54,7 +61,7 @@ public partial class MainWindow : Window
     {
         await SafeAsync(async () =>
         {
-            await _playback.SetProjectAsync(_project);
+            await _playback.SetProjectAsync(_project, Timeline.OfflineAssetIds);
             if (_startupPath is not null)
             {
                 if (Path.GetExtension(_startupPath).Equals(".videosync", StringComparison.OrdinalIgnoreCase)) await OpenProjectAsync(_startupPath);
@@ -62,13 +69,15 @@ public partial class MainWindow : Window
             }
         });
         if (App.SmokeTestDirectory is not null) await RunSmokeTestAsync(App.SmokeTestDirectory);
+        if (App.PerformanceTestDirectory is not null) await RunPerformanceTestAsync(App.PerformanceTestDirectory);
     }
     private void Run(Func<Task> operation) => _ = SafeAsync(operation);
     private async Task SafeAsync(Func<Task> operation)
     {
+        if (_closing) return;
         try { await operation(); }
         catch (OperationCanceledException) { }
-        catch (Exception ex) { StatusText.Text = ex.Message; MessageBox.Show(this, ex.Message, "Video Sync", MessageBoxButton.OK, MessageBoxImage.Warning); }
+        catch (Exception ex) { if (_closing) return; StatusText.Text = ex.Message; MessageBox.Show(this, ex.Message, "Video Sync", MessageBoxButton.OK, MessageBoxImage.Warning); }
     }
     private void MarkDirty() { _dirty = true; UpdateTitle(); }
     private void UpdateTitle()
@@ -76,11 +85,16 @@ public partial class MainWindow : Window
         ProjectLabel.Text = _project.Name + (_dirty ? " •" : "");
         Title = $"{_project.Name}{(_dirty ? " *" : "")} — Video Sync";
     }
-    private void UpdateProjectUI()
+    private void UpdateProjectUI(bool refreshSources = false)
     {
         _updating = true;
-        Timeline.SetProject(_project);
-        _hasOfflineSources = _project.Assets.Any(a => a.IsOffline);
+        Timeline.SetProject(_project, refreshSources);
+        Timeline.SetViewport(new Rect(TimelineScroll.HorizontalOffset, TimelineScroll.VerticalOffset, Math.Max(1, TimelineScroll.ViewportWidth), Math.Max(1, TimelineScroll.ViewportHeight)));
+        _hasOfflineSources = Timeline.OfflineAssetIds.Count > 0;
+        string headerSignature = System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(_project) + ":" + string.Join("|", _project.Tracks.Select(t => t.Id + ":" + t.Name));
+        if (_trackHeaderSignature != headerSignature)
+        {
+        _trackHeaderSignature = headerSignature;
         TrackHeaders.Children.Clear();
         foreach (var track in _project.Tracks)
         {
@@ -99,6 +113,7 @@ public partial class MainWindow : Window
             row.Children.Add(mute); row.Children.Add(slider); row.Children.Add(value); grid.Children.Add(row);
             var border = new Border { Child = grid, BorderBrush = ColorBrush("#293344"), BorderThickness = new Thickness(0, 0, 0, 1) };
             TrackHeaders.Children.Add(border);
+        }
         }
         MasterVolume.Value = FullVolume.Value = EmptyVolume.Value = _project.MasterVolume;
         MasterValue.Text = _project.MasterVolume + "%";
@@ -150,6 +165,7 @@ public partial class MainWindow : Window
         {
             _seekCts?.Cancel();
             await _playback.PauseAsync();
+            if (_closing) return;
             long audioStart = _playback.PositionMs;
             var errors = new List<string>();
             foreach (var path in paths)
@@ -159,6 +175,7 @@ public partial class MainWindow : Window
                 try
                 {
                     var asset = await _engine.ProbeAsync(path);
+                    if (_closing) return;
                     _project.Assets.Add(asset);
                     TimelineTrack track;
                     long start;
@@ -177,7 +194,7 @@ public partial class MainWindow : Window
                 }
                 catch (Exception ex) { errors.Add(Path.GetFileName(path) + ": " + ex.Message); }
             }
-            await _playback.SetProjectAsync(_project);
+            await _playback.SetProjectAsync(_project, Timeline.OfflineAssetIds);
             UpdateProjectUI();
             if (errors.Count > 0) MessageBox.Show(this, string.Join("\n\n", errors), "Some files could not be imported", MessageBoxButton.OK, MessageBoxImage.Warning);
         }
@@ -190,8 +207,9 @@ public partial class MainWindow : Window
         {
             _seekCts?.Cancel();
             await _playback.PauseAsync();
+            if (_closing) return;
             if (!TimelineRules.TryMove(_project, id, track, start, out var error)) { StatusText.Text = error; return; }
-            MarkDirty(); UpdateProjectUI(); await _playback.SetProjectAsync(_project);
+            MarkDirty(); UpdateProjectUI(); await _playback.SetProjectAsync(_project, Timeline.OfflineAssetIds);
         }
         finally { _editLock.Release(); }
     }
@@ -203,9 +221,10 @@ public partial class MainWindow : Window
         {
             _seekCts?.Cancel();
             await _playback.PauseAsync();
+            if (_closing) return;
             _project.Clips.RemoveAll(c => c.Id == id);
             _project.Assets.RemoveAll(a => !_project.Clips.Any(c => c.AssetId == a.Id));
-            MarkDirty(); UpdateProjectUI(); await _playback.SetProjectAsync(_project);
+            MarkDirty(); UpdateProjectUI(); await _playback.SetProjectAsync(_project, Timeline.OfflineAssetIds);
         }
         finally { _editLock.Release(); }
     }
@@ -221,13 +240,15 @@ public partial class MainWindow : Window
         {
             _seekCts?.Cancel();
             await _playback.PauseAsync();
+            if (_closing) return;
             var replacement = await _engine.ProbeAsync(dialog.FileName);
+            if (_closing) return;
             if (replacement.HasVideo != asset.HasVideo) throw new InvalidOperationException("Choose a source of the same type (video or audio).");
             string oldPath = asset.FilePath, oldName = asset.Name; long oldDuration = asset.DurationMs; bool oldAudio = asset.HasAudio;
             asset.FilePath = replacement.FilePath; asset.Name = replacement.Name; asset.DurationMs = replacement.DurationMs; asset.HasAudio = replacement.HasAudio;
             try { TimelineRules.Validate(_project); }
             catch { asset.FilePath = oldPath; asset.Name = oldName; asset.DurationMs = oldDuration; asset.HasAudio = oldAudio; throw new InvalidOperationException("The replacement file would overlap another clip. Move the neighboring clip first or choose the original file."); }
-            MarkDirty(); UpdateProjectUI(); await _playback.SetProjectAsync(_project);
+            MarkDirty(); UpdateProjectUI(refreshSources: true); await _playback.SetProjectAsync(_project, Timeline.OfflineAssetIds);
         }
         finally { _editLock.Release(); }
     }
@@ -321,7 +342,8 @@ public partial class MainWindow : Window
     {
         await _editLock.WaitAsync();
         try { _seekCts?.Cancel();
-            await _playback.PauseAsync(); _project.Tracks.Add(new TimelineTrack { Kind = TrackKind.Audio, Name = "Audio " + (_project.Tracks.Count(t => t.Kind == TrackKind.Audio) + 1) }); MarkDirty(); UpdateProjectUI(); await _playback.SetProjectAsync(_project); }
+            await _playback.PauseAsync();
+            if (_closing) return; _project.Tracks.Add(new TimelineTrack { Kind = TrackKind.Audio, Name = "Audio " + (_project.Tracks.Count(t => t.Kind == TrackKind.Audio) + 1) }); MarkDirty(); UpdateProjectUI(); await _playback.SetProjectAsync(_project, Timeline.OfflineAssetIds); }
         finally { _editLock.Release(); }
     });
     private void ZoomInClicked(object sender, RoutedEventArgs e) => Zoom(1.4);
@@ -332,11 +354,11 @@ public partial class MainWindow : Window
         Timeline.Scale = Math.Max(1, TimelineScroll.ViewportWidth - 70) * 1000 / Math.Max(1000, TimelineRules.Duration(_project));
         ZoomLabel.Text = Math.Round(Timeline.Scale / 50 * 100) + "%"; TimelineScroll.ScrollToHorizontalOffset(0);
     }
-    private void TimelineScrolled(object sender, ScrollChangedEventArgs e) { TrackScroll.ScrollToVerticalOffset(e.VerticalOffset); Timeline.InvalidateVisual(); }
+    private void TimelineScrolled(object sender, ScrollChangedEventArgs e) { TrackScroll.ScrollToVerticalOffset(e.VerticalOffset); Timeline.SetViewport(new Rect(e.HorizontalOffset, e.VerticalOffset, Math.Max(1, e.ViewportWidth), Math.Max(1, e.ViewportHeight))); }
     private void TimelineWheel(object sender, MouseWheelEventArgs e) { if ((Keyboard.Modifiers & ModifierKeys.Control) != 0) { Zoom(e.Delta > 0 ? 1.2 : 1 / 1.2); e.Handled = true; } }
-    private bool ConfirmDiscard()
+    private bool ConfirmDiscard(bool allowBusy = false)
     {
-        if (_importing || _editLock.CurrentCount == 0) { StatusText.Text = "Wait for the current timeline operation to finish."; return false; }
+        if (!allowBusy && (_importing || _editLock.CurrentCount == 0)) { StatusText.Text = "Wait for the current timeline operation to finish."; return false; }
         if (!_dirty) return true;
         var response = MessageBox.Show(this, "Save changes to " + _project.Name + "?", "Unsaved project", MessageBoxButton.YesNoCancel, MessageBoxImage.Question);
         return response == MessageBoxResult.No || response == MessageBoxResult.Yes && SaveProject(false);
@@ -370,8 +392,9 @@ public partial class MainWindow : Window
         try
         {
             _seekCts?.Cancel(); await _playback.PauseAsync();
+            if (_closing) return;
             _project = new ProjectDocument(); _projectPath = null; _dirty = false;
-            UpdateProjectUI(); await _playback.SetProjectAsync(_project);
+            UpdateProjectUI(); await _playback.SetProjectAsync(_project, Timeline.OfflineAssetIds);
         }
         finally { _editLock.Release(); }
     }
@@ -383,31 +406,62 @@ public partial class MainWindow : Window
     }
     private async Task OpenProjectAsync(string path)
     {
-        var loaded = ProjectStore.Load(path);
+        var loaded = await Task.Run(() => ProjectStore.Load(path));
         await _editLock.WaitAsync();
         try
         {
             _seekCts?.Cancel(); await _playback.PauseAsync();
+            if (_closing) return;
             // Clear the previous transport without reopening its first source: it may
             // have become unavailable. New projects always open at their beginning.
             await _playback.SetProjectAsync(new ProjectDocument());
             _project = loaded; _projectPath = Path.GetFullPath(path); _dirty = false;
-            UpdateProjectUI(); await _playback.SetProjectAsync(_project);
+            UpdateProjectUI(refreshSources: true); await _playback.SetProjectAsync(_project, Timeline.OfflineAssetIds);
         }
         finally { _editLock.Release(); }
     }
     private async void WindowClosing(object? sender, CancelEventArgs e)
     {
-        if (_closing) return;
+        _closeRequests++;
+        if (_closing) { e.Cancel = !_closeReady; return; }
         e.Cancel = true;
-        if (!ConfirmDiscard()) return;
-        _closing = true; IsEnabled = false;
+        if (!ConfirmDiscard(allowBusy: true)) return;
+        _closing = true;
+        _uiTimer.Stop();
         _seekCts?.Cancel();
-        _seekCts?.Cancel();
-            await _playback.PauseAsync();
+        IsEnabled = false;
+        long started = System.Diagnostics.Stopwatch.GetTimestamp();
+        var cleanup = CleanupPlaybackAsync();
+        bool timedOut = await Task.WhenAny(cleanup, Task.Delay(5000)) != cleanup;
+        bool cleanupFailed = false;
+        if (!timedOut)
+        {
+            try { await cleanup; }
+            catch (Exception exception) { cleanupFailed = true; System.Diagnostics.Debug.WriteLine(exception); }
+        }
+        string? reportDirectory = App.PerformanceTestDirectory ?? App.SmokeTestDirectory;
+        if (reportDirectory is not null)
+        {
+            try
+            {
+                System.IO.Directory.CreateDirectory(reportDirectory);
+                System.IO.File.WriteAllText(System.IO.Path.Combine(reportDirectory, "shutdown.json"),
+                    System.Text.Json.JsonSerializer.Serialize(new { timedOut, cleanupFailed, closeRequests = _closeRequests, elapsedMs = System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds }));
+            }
+            catch (System.IO.IOException) { }
+        }
+        // The project prompt/save has completed. A broken codec must never require
+        // Task Manager; this watchdog is only a last resort for an unresponsive DLL.
+        if (timedOut || cleanupFailed) { System.Diagnostics.Process.GetCurrentProcess().Kill(); return; }
+        _closeReady = true;
+        Close();
+    }
+    private async Task CleanupPlaybackAsync()
+    {
+        // Keep WPF and the HWND alive while native Stop sends its window messages.
+        await _playback.StopForShutdownAsync();
         VideoHost.MediaPlayer = null;
         await Task.Run(() => { _playback.Dispose(); _engine.Dispose(); });
-        Close();
     }
     private static Brush ColorBrush(string color) => new SolidColorBrush((Color)ColorConverter.ConvertFromString(color));
 }

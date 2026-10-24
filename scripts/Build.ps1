@@ -37,7 +37,7 @@ try {
         if ($LASTEXITCODE -ne 0) { throw 'Media tests failed.' }
     }
     if ($Publish) {
-        & $taskDotnet publish src/VideoSync.App -c $Configuration -r win-x64 --self-contained true -p:PublishSingleFile=false -o artifacts/VideoSync
+        & $taskDotnet publish src/VideoSync.App -c $Configuration -r win-x64 --self-contained true -p:PublishSingleFile=false -p:PublishDir=../../artifacts/VideoSync/
         if ($LASTEXITCODE -ne 0) { throw 'Publish failed.' }
         $publishFolder = Join-Path $projectRoot 'artifacts\VideoSync'
         Copy-Item -LiteralPath (Join-Path $projectRoot 'README.md') -Destination (Join-Path $publishFolder 'README.md')

@@ -2,6 +2,12 @@
 
 A local Windows 11 x64 desktop app for playing whole video files alongside layered audio.
 
+## Version 1.0.1
+
+This update fixes excessive timeline redraws, sluggish clip movement, and shutdown hangs during playback. Existing .videosync projects remain compatible.
+
+For development, run `.\scripts\Test-Desktop.ps1 -Runs 3` in a visible Windows desktop session. It runs the workflow checks and three large-timeline/playback-close regressions, including simulated hardware-decoder failure recovery. Results are written to artifacts/desktop-tests. See VALIDATION.md for measured results.
+
 ## Run
 
 Open **artifacts/VideoSync/VideoSync.exe**. Keep the entire VideoSync folder together; the executable uses its bundled .NET runtime and LibVLC libraries. No separate VLC or .NET installation is needed. You can also drag a .videosync project onto the executable, or pass a project/media path as its first argument.
@@ -43,6 +49,10 @@ For a real-window WPF smoke test after building:
 Run the UI smoke test in a normal visible window so the GPU can present frames. It imports disposable fixture copies, exercises transport/fullscreen/project round trips and missing-source switching, writes result.json and WPF layout PNGs, then exits. WPF PNGs do not capture the native hardware video surface.
 
 ## Implementation
+
+Timeline geometry is retained for the visible viewport; the playhead and drag feedback use a separate drawing layer. Playback notifications are coalesced, expensive native counters are opt-in, and edits reuse active decoders. Closing cancels queued work and stops native video before detaching its window. A five-second watchdog prevents an unresponsive native codec from blocking exit after the save prompt has completed. Hardware startup stalls are retried with software decoding.
+
+
 
 The solution separates timeline rules/persistence (VideoSync.Core), WPF UI and serialized media coordination (VideoSync.App), deterministic domain checks (VideoSync.Tests), and actual native playback checks (VideoSync.MediaTests). Project files are version 1 JSON with relative paths and absolute fallbacks. The engine uses DirectSound buffers for independent track gain/mute and prepares outputs while muted before starting the shared transport clock.
 

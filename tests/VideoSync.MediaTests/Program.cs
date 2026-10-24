@@ -73,7 +73,7 @@ internal sealed class MediaSuite
         }
         using var videoSink = new NativeVideoSink();
         _videoSink = videoSink;
-        using var controller = new PlaybackController(engine);
+        using var controller = new PlaybackController(engine, enableDiagnostics: true);
         _controller = controller;
         _controller.StatusChanged += status => _status = status;
         _controller.VideoVisibilityChanged += visible => _videoVisible = visible;

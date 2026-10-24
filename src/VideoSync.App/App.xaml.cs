@@ -6,6 +6,8 @@ namespace VideoSync.App;
 public partial class App : Application
 {
     public static string? SmokeTestDirectory { get; private set; }
+    public static bool SimulateVideoStartupStall { get; private set; }
+    public static string? PerformanceTestDirectory { get; private set; }
     public static string? FixtureDirectory { get; private set; }
     protected override void OnStartup(StartupEventArgs e)
     {
@@ -17,6 +19,8 @@ public partial class App : Application
             for (int i = 0; i < e.Args.Length; i++)
             {
                 if (e.Args[i] == "--smoke-test" && i + 1 < e.Args.Length) SmokeTestDirectory = Path.GetFullPath(e.Args[++i]);
+                else if (e.Args[i] == "--simulate-video-stall") SimulateVideoStartupStall = true;
+                else if (e.Args[i] == "--performance-test" && i + 1 < e.Args.Length) PerformanceTestDirectory = Path.GetFullPath(e.Args[++i]);
                 else if (e.Args[i] == "--fixtures" && i + 1 < e.Args.Length) FixtureDirectory = Path.GetFullPath(e.Args[++i]);
                 else if (!e.Args[i].StartsWith("--")) startupPath = Path.GetFullPath(e.Args[i]);
             }
