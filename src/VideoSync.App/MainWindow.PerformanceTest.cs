@@ -19,11 +19,11 @@ public partial class MainWindow
             string fixture = App.FixtureDirectory ?? throw new InvalidOperationException("--fixtures is required.");
             var video = await _engine.ProbeAsync(Path.Combine(fixture, "pulse-10min.mp4"));
             var audio = await _engine.ProbeAsync(Path.Combine(fixture, "audio.wav"));
-            _project = new ProjectDocument { Name = "Performance regression", Assets = [video, audio], MasterMuted = true };
+            _project = new ProjectDocument { Name = "Performance regression", Assets = [video, audio], MasterMuted = true, AutoDuckingEnabled = true };
             for (int i = 0; i < 40; i++) _project.Clips.Add(new TimelineClip { AssetId = video.Id, TrackId = "video", StartMs = i * video.DurationMs });
             for (int lane = 0; lane < 40; lane++)
             {
-                var track = new TimelineTrack { Kind = TrackKind.Audio, Name = "Audio " + lane };
+                var track = new TimelineTrack { Kind = TrackKind.Audio, Name = "Audio " + lane, IsDuckingSource = lane == 0 };
                 _project.Tracks.Add(track);
                 if (lane < 2) _project.Clips.Add(new TimelineClip { AssetId = audio.Id, TrackId = track.Id, StartMs = 0 });
                 for (int i = 0; i < 250; i++) _project.Clips.Add(new TimelineClip { AssetId = audio.Id, TrackId = track.Id, StartMs = 3600000L + i * 9000L });
@@ -41,6 +41,10 @@ public partial class MainWindow
             double playheadMs = playheadTimer.Elapsed.TotalMilliseconds;
             await _playback.PlayPauseAsync();
             await Task.Delay(400);
+            var analysisWait = Stopwatch.StartNew();
+            while (!_playback.Diagnostics.Any(d => d.ActivityDb is > -80) && analysisWait.ElapsedMilliseconds < 3000) await Task.Delay(50);
+            File.WriteAllText(Path.Combine(directory,"voice-startup.json"), JsonSerializer.Serialize(_playback.Diagnostics));
+            Check(_playback.Diagnostics.Any(d => d.ActivityDb is > -80), "Voice activity analysis runs alongside real video playback");
             var heartbeat = new List<double>();
             long stamp = Stopwatch.GetTimestamp();
             var pulse = new DispatcherTimer(DispatcherPriority.Input, Dispatcher) { Interval = TimeSpan.FromMilliseconds(20) };

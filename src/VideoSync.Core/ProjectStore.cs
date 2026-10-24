@@ -40,6 +40,8 @@ public static class ProjectStore
             Name = stored.Name ?? "",
             MasterVolume = stored.MasterVolume,
             MasterMuted = stored.MasterMuted,
+            AutoDuckingEnabled = stored.AutoDuckingEnabled,
+            DuckAmount = stored.DuckAmount,
             Tracks = stored.Tracks,
             Clips = stored.Clips,
             Assets = []
@@ -54,7 +56,11 @@ public static class ProjectStore
                 FilePath = ResolveSourcePath(asset, folder),
                 DurationMs = asset.DurationMs,
                 HasVideo = asset.HasVideo,
-                HasAudio = asset.HasAudio
+                HasAudio = asset.HasAudio,
+                Subtitles = asset.Subtitles,
+                SubtitleTrackIndex = asset.SubtitleTrackIndex,
+                SubtitleFilePath = string.IsNullOrWhiteSpace(asset.SubtitleAbsolutePath) && string.IsNullOrWhiteSpace(asset.SubtitleRelativePath) ? null :
+                    ResolveSourcePath(new StoredAsset { Name = asset.Name + " subtitles", RelativePath = asset.SubtitleRelativePath, AbsolutePath = asset.SubtitleAbsolutePath }, folder)
             });
         }
         TimelineRules.Validate(project);
@@ -72,6 +78,8 @@ public static class ProjectStore
             Name = project.Name,
             MasterVolume = project.MasterVolume,
             MasterMuted = project.MasterMuted,
+            AutoDuckingEnabled = project.AutoDuckingEnabled,
+            DuckAmount = project.DuckAmount,
             Tracks = project.Tracks,
             Clips = project.Clips,
             Assets = project.Assets.Select(asset =>
@@ -86,7 +94,11 @@ public static class ProjectStore
                     RelativePath = Path.IsPathRooted(relativePath) ? null : relativePath,
                     DurationMs = asset.DurationMs,
                     HasVideo = asset.HasVideo,
-                    HasAudio = asset.HasAudio
+                    HasAudio = asset.HasAudio,
+                    Subtitles = asset.Subtitles,
+                    SubtitleTrackIndex = asset.SubtitleTrackIndex,
+                    SubtitleAbsolutePath = asset.SubtitleFilePath,
+                    SubtitleRelativePath = asset.SubtitleFilePath is null || Path.IsPathRooted(Path.GetRelativePath(folder, asset.SubtitleFilePath)) ? null : Path.GetRelativePath(folder, asset.SubtitleFilePath)
                 };
             }).ToList()
         };
@@ -147,6 +159,8 @@ public static class ProjectStore
         public string? Name { get; set; }
         public int MasterVolume { get; set; } = 100;
         public bool MasterMuted { get; set; }
+        public bool AutoDuckingEnabled { get; set; }
+        public int DuckAmount { get; set; } = 60;
         public List<StoredAsset>? Assets { get; set; }
         public List<TimelineTrack>? Tracks { get; set; }
         public List<TimelineClip>? Clips { get; set; }
@@ -162,5 +176,9 @@ public static class ProjectStore
         public long DurationMs { get; set; }
         public bool HasVideo { get; set; }
         public bool HasAudio { get; set; }
+        public SubtitleMode Subtitles { get; set; } = SubtitleMode.Auto;
+        public int SubtitleTrackIndex { get; set; } = -1;
+        public string? SubtitleAbsolutePath { get; set; }
+        public string? SubtitleRelativePath { get; set; }
     }
 }

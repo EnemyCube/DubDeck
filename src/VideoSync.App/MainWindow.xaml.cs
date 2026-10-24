@@ -39,7 +39,7 @@ public partial class MainWindow : Window
         VideoHost.MediaPlayer = _playback.VideoPlayer;
         _playback.StatusChanged += status => { if (!_closing) Volatile.Write(ref _latestStatus, status); };
         _uiTimer = new System.Windows.Threading.DispatcherTimer(System.Windows.Threading.DispatcherPriority.Background, Dispatcher) { Interval = TimeSpan.FromMilliseconds(100) };
-        _uiTimer.Tick += (_, _) => { var latest = Interlocked.Exchange(ref _latestStatus, null); if (latest is not null && !_closing) ShowStatus(latest); };
+        _uiTimer.Tick += (_, _) => { var latest = Interlocked.Exchange(ref _latestStatus, null); if (latest is not null && !_closing) ShowStatus(latest); UpdateOsd(); SyncPauseControls(); };
         _uiTimer.Start();
         _playback.VideoVisibilityChanged += visible => { if (!_closing) Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Background, () => { if (!_closing) SetVideoVisible(visible); }); };
         Timeline.SeekRequested += position => QueueSeek(position);
@@ -95,29 +95,18 @@ public partial class MainWindow : Window
         if (_trackHeaderSignature != headerSignature)
         {
         _trackHeaderSignature = headerSignature;
-        TrackHeaders.Children.Clear();
+        TrackHeaders.Children.Clear(); FullVideoMixer.Children.Clear(); FullEmptyMixer.Children.Clear(); _trackWidgets.Clear();
         foreach (var track in _project.Tracks)
         {
-            var grid = new Grid { Height = TimelineSurface.TrackHeight, Margin = new Thickness(12, 0, 10, 0) };
-            grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(27) });
-            grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(35) });
-            var title = new TextBlock { Text = track.Name, FontWeight = FontWeights.SemiBold, FontSize = 12, TextTrimming = TextTrimming.CharacterEllipsis, ToolTip = track.Name };
-            grid.Children.Add(title);
-            var row = new StackPanel { Orientation = Orientation.Horizontal };
-            Grid.SetRow(row, 1);
-            var mute = new Button { Content = track.IsMuted ? "M" : "♪", Width = 31, Padding = new Thickness(4), Margin = new Thickness(0, 0, 6, 0), ToolTip = "Mute " + track.Name, Background = track.IsMuted ? ColorBrush("#825447") : ColorBrush("#293245") };
-            var slider = new Slider { Width = 105, Value = track.Volume, ToolTip = "Volume: " + track.Name };
-            var value = new TextBlock { Text = track.Volume + "%", Width = 38, FontSize = 11, Margin = new Thickness(5, 0, 0, 0), Foreground = ColorBrush("#98A6BC") };
-            mute.Click += (_, _) => { track.IsMuted = !track.IsMuted; mute.Content = track.IsMuted ? "M" : "♪"; mute.Background = ColorBrush(track.IsMuted ? "#825447" : "#293245"); MarkDirty(); Run(() => _playback.UpdateVolumeAsync(_project)); };
-            slider.ValueChanged += (_, args) => { if (_updating) return; track.Volume = (int)Math.Round(args.NewValue); value.Text = track.Volume + "%"; MarkDirty(); Run(() => _playback.UpdateVolumeAsync(_project)); };
-            row.Children.Add(mute); row.Children.Add(slider); row.Children.Add(value); grid.Children.Add(row);
-            var border = new Border { Child = grid, BorderBrush = ColorBrush("#293344"), BorderThickness = new Thickness(0, 0, 0, 1) };
-            TrackHeaders.Children.Add(border);
+            TrackHeaders.Children.Add(CreateTrackControls(track, fullscreen: false));
+            FullVideoMixer.Children.Add(CreateTrackControls(track, fullscreen: true));
+            FullEmptyMixer.Children.Add(CreateTrackControls(track, fullscreen: true));
         }
         }
         MasterVolume.Value = FullVolume.Value = EmptyVolume.Value = _project.MasterVolume;
         MasterValue.Text = _project.MasterVolume + "%";
         SetMuteLabels();
+        SyncDuckingControls();
         SeekBar.Maximum = Math.Max(1, TimelineRules.Duration(_project));
         PreviewTitle.Text = _project.Clips.Count == 0 ? "Your timeline starts here" : "No video at this position";
         PreviewHint.Text = _project.Clips.Count == 0 ? "Import video or audio, or drop files into the window" : "Audio continues across video gaps";
@@ -285,6 +274,7 @@ public partial class MainWindow : Window
     private void MasterVolumeChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
     {
         if (_updating || _playback is null || MasterVolume is null || FullVolume is null || EmptyVolume is null) return;
+        TouchOsd();
         _updating = true; _project.MasterVolume = (int)Math.Round(e.NewValue);
         MasterVolume.Value = FullVolume.Value = EmptyVolume.Value = _project.MasterVolume;
         MasterValue.Text = _project.MasterVolume + "%"; _updating = false;
@@ -300,6 +290,7 @@ public partial class MainWindow : Window
     private void ToggleFullscreen()
     {
         _full = !_full;
+        TouchOsd();
         if (_full)
         {
             _savedState = WindowState; _savedStyle = WindowStyle; _savedResize = ResizeMode;
@@ -314,7 +305,7 @@ public partial class MainWindow : Window
         Header.Visibility = Transport.Visibility = TimelinePanel.Visibility = Footer.Visibility = _full ? Visibility.Collapsed : Visibility.Visible;
         Root.RowDefinitions[0].Height = new GridLength(_full ? 0 : 66);
         Root.RowDefinitions[2].Height = new GridLength(_full ? 0 : 82);
-        Root.RowDefinitions[3].Height = new GridLength(_full ? 0 : 284);
+        Root.RowDefinitions[3].Height = new GridLength(_full ? 0 : 316);
         Root.RowDefinitions[4].Height = new GridLength(_full ? 0 : 30);
         PreviewBorder.Margin = _full ? new Thickness(0) : new Thickness(18, 14, 18, 0);
         FullVideoControls.Visibility = _full && _videoVisible ? Visibility.Visible : Visibility.Collapsed;
@@ -323,6 +314,7 @@ public partial class MainWindow : Window
     private void PreviewClicked(object sender, MouseButtonEventArgs e) { if (e.ClickCount == 2) { ToggleFullscreen(); e.Handled = true; } }
     private void WindowKeyDown(object sender, KeyEventArgs e)
     {
+        TouchOsd();
         bool ctrl = (Keyboard.Modifiers & ModifierKeys.Control) != 0;
         if (e.Key == Key.F11 || e.Key == Key.Escape && _full) { ToggleFullscreen(); e.Handled = true; return; }
         if (ctrl)

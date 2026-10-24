@@ -37,9 +37,11 @@ try {
         if ($LASTEXITCODE -ne 0) { throw 'Media tests failed.' }
     }
     if ($Publish) {
-        & $taskDotnet publish src/VideoSync.App -c $Configuration -r win-x64 --self-contained true -p:PublishSingleFile=false -p:PublishDir=../../artifacts/VideoSync/
+        [xml]$applicationProject = Get-Content -LiteralPath (Join-Path $projectRoot "src\VideoSync.App\VideoSync.App.csproj")
+        $releaseName = "VideoSync-" + $applicationProject.Project.PropertyGroup.Version
+        & $taskDotnet publish src/VideoSync.App -c $Configuration -r win-x64 --self-contained true -p:PublishSingleFile=false ("-p:PublishDir=../../artifacts/" + $releaseName + "/")
         if ($LASTEXITCODE -ne 0) { throw 'Publish failed.' }
-        $publishFolder = Join-Path $projectRoot 'artifacts\VideoSync'
+        $publishFolder = Join-Path $projectRoot ("artifacts\" + $releaseName)
         Copy-Item -LiteralPath (Join-Path $projectRoot 'README.md') -Destination (Join-Path $publishFolder 'README.md')
         Copy-Item -LiteralPath (Join-Path $projectRoot 'THIRD-PARTY-NOTICES.md') -Destination (Join-Path $publishFolder 'THIRD-PARTY-NOTICES.md')
         $licenseDestination = Join-Path $publishFolder 'licenses'

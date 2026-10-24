@@ -67,6 +67,38 @@ public partial class MainWindow
             await Task.Delay(250);
             Check(Header.Visibility == Visibility.Collapsed && FullVideoControls.Visibility == Visibility.Visible, "Fullscreen hides editing panels and exposes transport");
             Check(_playback.PositionMs == paused, "Fullscreen preserves paused position");
+
+            Check(Icon is not null, "The application window has its own icon");
+            Check(FullVideoMixer.Children.Count == _project.Tracks.Count && FullEmptyMixer.Children.Count == _project.Tracks.Count, "Fullscreen includes every track for both video and audio-only playback");
+            var mixerTrack = _project.Tracks.First(t => t.Kind == TrackKind.Audio);
+            var mixerWidgets = _trackWidgets[mixerTrack.Id];
+            mixerWidgets[1].Slider.Value = 37;
+            await _playback.UpdateVolumeAsync(_project);
+            Check(mixerTrack.Volume == 37 && mixerWidgets.All(w => w.Slider.Value == 37), "Fullscreen and timeline track sliders stay synchronized");
+            mixerWidgets[1].Mute.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Button.ClickEvent));
+            await _playback.UpdateVolumeAsync(_project);
+            Check(mixerTrack.IsMuted && mixerWidgets.All(w => (string)w.Mute.Content == "Muted"), "Fullscreen mute controls update the shared track mixer");
+            mixerWidgets[2].Slider.Value = 64;
+            Check(mixerTrack.Volume == 64 && mixerWidgets.All(w => w.Slider.Value == 64), "Audio-only fullscreen sliders share the same levels");
+
+            mixerWidgets[1].Voice.IsChecked = true;
+            mixerWidgets[1].Voice.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+            await _playback.UpdateVolumeAsync(_project);
+            Check(mixerTrack.IsDuckingSource && mixerWidgets.All(w => w.Voice.IsChecked == true), "Voice trigger controls stay synchronized across mixers");
+            _duckControls[1].Enabled.IsChecked = true;
+            _duckControls[1].Enabled.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+            _duckControls[2].Amount.Value = 72;
+            await _playback.UpdateVolumeAsync(_project);
+            Check(_project.AutoDuckingEnabled && _project.DuckAmount == 72 && _duckControls.All(w => w.Enabled.IsChecked == true && w.Amount.Value == 72), "Fullscreen ducking settings update all controls");
+            mixerWidgets[1].Pause.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Button.ClickEvent));
+            await _playback.GetSubtitlesAsync();
+            SyncPauseControls();
+            Check(_playback.PausedTrackIds.Contains(mixerTrack.Id) && mixerWidgets.All(w => (string)w.Pause.Content == "Resume"), "Fullscreen track pause updates every mixer");
+            mixerWidgets[2].Pause.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Button.ClickEvent));
+            await _playback.GetSubtitlesAsync();
+            SyncPauseControls();
+            Check(!_playback.PausedTrackIds.Contains(mixerTrack.Id) && mixerWidgets.All(w => (string)w.Pause.Content == "Pause"), "Track resume controls stay synchronized");
+
             await _playback.SeekAsync(duration + 1500);
             await Task.Delay(250);
             Check(!_videoVisible && EmptyPreview.Visibility == Visibility.Collapsed && FullEmptyControls.Visibility == Visibility.Visible, "Video gaps stay black while fullscreen audio controls remain available");

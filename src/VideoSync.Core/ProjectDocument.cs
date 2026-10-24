@@ -1,8 +1,9 @@
-﻿using System.Text.Json.Serialization;
+using System.Text.Json.Serialization;
 
 namespace VideoSync.Core;
 
 public enum TrackKind { Video, Audio }
+public enum SubtitleMode { Auto, Off, Embedded, External }
 
 public sealed class MediaAsset
 {
@@ -13,6 +14,9 @@ public sealed class MediaAsset
     public long DurationMs { get; set; }
     public bool HasVideo { get; set; }
     public bool HasAudio { get; set; }
+    public SubtitleMode Subtitles { get; set; } = SubtitleMode.Auto;
+    public int SubtitleTrackIndex { get; set; } = -1;
+    public string? SubtitleFilePath { get; set; }
 
     [JsonIgnore]
     public bool IsOffline => !File.Exists(FilePath);
@@ -27,6 +31,9 @@ public sealed class TimelineTrack
     public TrackKind Kind { get; set; }
     public int Volume { get; set; } = 100;
     public bool IsMuted { get; set; }
+    public bool IsDuckingSource { get; set; }
+    [JsonIgnore]
+    public bool IsPaused { get; set; }
 }
 
 public sealed class TimelineClip
@@ -45,6 +52,8 @@ public sealed class ProjectDocument
     public string Name { get; set; } = "Untitled";
     public int MasterVolume { get; set; } = 100;
     public bool MasterMuted { get; set; }
+    public bool AutoDuckingEnabled { get; set; }
+    public int DuckAmount { get; set; } = 60;
     public List<MediaAsset> Assets { get; set; } = [];
     public List<TimelineTrack> Tracks { get; set; } =
         [new TimelineTrack { Id = "video", Name = "Video", Kind = TrackKind.Video }];

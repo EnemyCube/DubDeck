@@ -84,6 +84,7 @@ public static class TimelineRules
         ArgumentNullException.ThrowIfNull(project);
         if (project.Version != 1) throw new InvalidDataException($"Project version {project.Version} is unsupported. This application supports version 1.");
         if (string.IsNullOrWhiteSpace(project.Name)) throw new InvalidDataException("The project must have a name.");
+        if (project.DuckAmount is < 0 or > 100) throw new InvalidDataException("Duck amount must be between 0 and 100.");
         if (project.MasterVolume is < 0 or > 100) throw new InvalidDataException("Master volume must be between 0 and 100.");
         if (project.Assets is null || project.Tracks is null || project.Clips is null)
             throw new InvalidDataException("The project must contain media, track, and clip lists.");
@@ -97,6 +98,10 @@ public static class TimelineRules
             if (string.IsNullOrWhiteSpace(asset.FilePath) || !Path.IsPathFullyQualified(asset.FilePath) || asset.FilePath.Contains('\0'))
                 throw new InvalidDataException($"Media '{asset.Name}' must have an absolute source path.");
             if (asset.DurationMs <= 0) throw new InvalidDataException($"Media '{asset.Name}' must have a positive duration.");
+            if (!Enum.IsDefined(asset.Subtitles)) throw new InvalidDataException("Unsupported subtitle mode.");
+            if (asset.Subtitles == SubtitleMode.Embedded && asset.SubtitleTrackIndex < 0) throw new InvalidDataException("Choose a valid embedded subtitle track.");
+            if (asset.Subtitles == SubtitleMode.External && (string.IsNullOrWhiteSpace(asset.SubtitleFilePath) || !Path.IsPathFullyQualified(asset.SubtitleFilePath)))
+                throw new InvalidDataException("External subtitles must have an absolute source path.");
             if (!asset.HasVideo && !asset.HasAudio) throw new InvalidDataException($"Media '{asset.Name}' contains no video or audio.");
         }
 

@@ -20,6 +20,10 @@ internal sealed class NativeVideoSink : IDisposable
     private long _frames;
     private long _transitions;
     private int _previousBrightness = -1;
+    private readonly byte[] _frameBytes = new byte[Pitch * Height];
+    public bool MeasureSubtitlePixels { get; set; }
+    private int _whitePixels;
+    public int WhitePixels => Volatile.Read(ref _whitePixels);
 
     public long Frames => Interlocked.Read(ref _frames);
     public long PulseTransitions => Interlocked.Read(ref _transitions);
@@ -51,6 +55,13 @@ internal sealed class NativeVideoSink : IDisposable
         var previous = Interlocked.Exchange(ref _previousBrightness, brightness);
         if (previous >= 0 && Math.Abs(previous - brightness) >= 128)
             Interlocked.Increment(ref _transitions);
+        if (MeasureSubtitlePixels)
+        {
+            Marshal.Copy(_pixels, _frameBytes, 0, _frameBytes.Length);
+            int count = 0;
+            for (int i = 0; i < _frameBytes.Length; i += 4) if (_frameBytes[i] > 128 && _frameBytes[i+1] > 128 && _frameBytes[i+2] > 128) count++;
+            Volatile.Write(ref _whitePixels, count);
+        }
         Interlocked.Increment(ref _frames);
     }
 

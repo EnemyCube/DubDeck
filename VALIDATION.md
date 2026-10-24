@@ -1,45 +1,44 @@
-# Video Sync 1.0.1 validation
+# Video Sync 1.2.0 validation
 
-Validated on Windows 11 x64 on 2026-10-24.
+Validated on Windows 11 x64 on 2026-10-24. The executable is artifacts/VideoSync-1.2.0/VideoSync.exe. Keep the complete published folder together.
 
-## Fixes
+## Functionality
 
-- Retain the visible timeline drawing and render playhead/drag feedback separately.
-- Cull clips and ruler labels using the actual scroll viewport; cache metadata/source availability.
-- Coalesce playback UI notifications and disable continuous native diagnostic polling in normal use.
-- Keep existing track controls and decoders when clips move; skip unrelated seeks.
-- Stop native outputs asynchronously while the video HWND remains attached. Repeated close requests wait for cleanup. Unsaved-project confirmation remains in place.
-- Retry a stalled hardware decoder with software decoding. A deterministic startup-stall regression exercises this recovery.
-- Publish correctly from the network share whose path contains an apostrophe.
+- Application and window icon are included.
+- Embedded MKV and sidecar MP4 subtitles are selected, rendered into real decoded pixels, and disabled. Automatic selection and switching an ongoing subtitle cue are covered.
+- Fullscreen exposes every track volume, mute, Pause/Resume, and Voice control, plus master transport/volume, subtitles, and ducking settings. Mixer values stay synchronized with the workspace and audio-only fullscreen mode.
+- Independent video and audio pause preserve the frozen source while other players continue. Resume catches up to the timeline, including clip boundaries and gaps. Stop clears individual pauses.
+- Voice-triggered ducking lowers other tracks by the selected percentage, leaves Voice tracks at their own levels, and restores levels during silence. Tests cover mute, pause, amount changes, paused/playing seeks, global pause/resume, and rapid seeks. Known-amplitude PCM verifies the detector reads actual sound levels.
+- Ducking and subtitle preferences round-trip through version 1 projects; runtime track pauses are not saved. Older projects retain defaults.
 
-## Current results
+## Results
 
-- Release solution build: zero warnings and errors.
-- Core scenarios: 12/12 passed.
-- Native media scenarios: 9/9 passed, including MP4/MOV/MKV/MP3/WAV/M4A/FLAC decode/output, seeking, transitions, audio tails, independent volume and mute.
-- Packaged workflow: 14 checks passed.
-- Three packaged performance runs loaded a timeline longer than six hours with 10,042 clips. Each checked real playback, viewport culling, 1,000 playhead updates without rebuilding the ruler/text, drag feedback, real clip moves, decoder reuse, and repeated close requests while video was still playing.
-- The first performance run deliberately simulated hardware startup failure and verified actual software-decoded playback.
+- Release build: zero warnings and errors.
+- Core: 15/15 scenarios passed.
+- Native media: 12/12 scenarios passed, including MP4, MOV, MKV, MP3, WAV, M4A, FLAC, corrupt/missing input, transitions, gaps, audio tails, subtitles, track pause, and voice activity.
+- Packaged workflow: 23 checks passed; normal shutdown 416 ms.
+- Three packaged performance runs passed with 10,042 clips, a timeline over six hours, video playback, external audio, and active voice analysis. The first deliberately stalls hardware startup and verifies software recovery. Each closes during actual playback with repeated close requests.
 
 | Metric | Run 1 (software recovery) | Run 2 | Run 3 |
 | --- | ---: | ---: | ---: |
-| Drag redraw p95 | 0.155 ms | 0.142 ms | 0.155 ms |
-| Input callback interval p95 | 34.9 ms | 35.5 ms | 34.9 ms |
-| Two committed moves | 19.4 ms | 22.9 ms | 22.3 ms |
-| Normal close while playing | 312 ms | 578 ms | 605 ms |
+| Drag redraw p95 | 0.138 ms | 0.120 ms | 0.209 ms |
+| Input callback interval p95 | 34.6 ms | 34.2 ms | 34.6 ms |
+| Two committed moves | 20.8 ms | 20.0 ms | 27.5 ms |
+| Normal close during playback | 96 ms | 630 ms | 676 ms |
 | Forced shutdown | No | No | No |
 
-Only three clips and eleven ruler labels needed drawing in the test viewport. All three playback-close runs received repeated close requests and completed normal cleanup without using the five-second last-resort watchdog.
+Only three clips and eleven ruler labels required drawing in the tested viewport. One thousand playhead updates and continuous drag feedback did not rebuild static timeline text/ruler geometry. Clip moves retained controls and native decoders. Voice analysis measured the sine fixture at -21.07 dBFS and attenuated non-Voice players to 40% for a 60% duck amount.
 
-These measurements cover this machine and generated fixtures. The release did not repeat the original ten-minute timing soak; its original report is preserved separately. Native output counters and decoded-frame checks do not measure physical display/speaker latency.
+The packaged process loaded coreclr.dll, libvlc.dll, and libvlccore.dll from the release folder, confirming the bundled runtime and native media libraries were used. Window and fullscreen layout screenshots were reviewed. WPF screenshots do not capture native hardware video; native output/pixel checks verify it separately.
 
 ## Evidence and reproduction
 
-- Packaged executable: artifacts/VideoSync/VideoSync.exe (1.0.1).
-- Current packaged desktop results: artifacts/desktop-tests/20261024-175941/summary.json.
-- Native media results: artifacts/media-test-results/media-20261024-180112.json.
-- Reproduce desktop regressions: scripts/Test-Desktop.ps1 -Runs 3.
-- Build/publish: scripts/Build.ps1 -Publish.
+- Desktop results, shutdown reports, screenshots, and loaded-module paths: artifacts/desktop-tests/20261024-191315/summary.json and its workflow/performance folders.
+- Full native suite: artifacts/media-test-results/media-20261024-191056.json.
+- Final mixer/startup-pause regressions (including an immediate global pause while the detector opens): artifacts/media-test-results/media-20261024-191449.json. The tested app binary matches the published DLL.
+- Reproduce: scripts/Build.ps1 -MediaTests -Publish, then scripts/Test-Desktop.ps1 -Runs 3.
+- Earlier performance validation is preserved in artifacts/validation-1.0.1.md.
 
-Packaged VideoSync.dll SHA-256:
-0E2A49C1592B311B1745BE627257307AE15CA5FE6288F92B86E8C496965561EF
+This release did not repeat the earlier ten-minute timing soak. Run scripts/Build.ps1 -Soak to repeat it. Synchronization targets everyday playback; these measurements do not establish frame/sample accuracy or physical speaker/display timing. Voice detection responds to sound above its threshold on marked Voice tracks, including background noise.
+
+Published VideoSync.dll SHA-256: F9D0E44B41CDF4FF0D3943841D539C1541B119B7C60488CD73FB7AC1CAAACFEB.

@@ -232,6 +232,115 @@ internal sealed class MediaSuite
                 AssertHealthy();
                 await _controller.PauseAsync();
             });
+
+            await Check("Embedded and sidecar subtitles select, render, and turn off", async () =>
+            {
+                _videoSink.MeasureSubtitlePixels = true;
+                foreach (var name in new[] { "subtitle-embedded.mkv", "subtitle-sidecar.mp4" })
+                {
+                    var asset = await engine.ProbeAsync(Fixture(name));
+                    var subtitlesProject = new ProjectDocument { Assets = [asset], MasterMuted = true,
+                        Clips = [new() { AssetId = asset.Id, TrackId = "video", StartMs = 0 }] };
+                    await _controller.SetProjectAsync(subtitlesProject);
+                    await _controller.SeekAsync(1000);
+                    var available = await _controller.GetSubtitlesAsync();
+                    var option = available.Options.FirstOrDefault(o => name.EndsWith(".mkv") ? o.Mode == SubtitleMode.Embedded : o.Mode == SubtitleMode.External);
+                    Require(option is not null, name + ": no subtitle choice found");
+                    await _controller.PlayPauseAsync();
+                    await Until(() => _videoSink.WhitePixels > 8, TimeSpan.FromSeconds(4), "Automatic subtitles did not render");
+                    await _controller.SetSubtitlesAsync(asset.Id, SubtitleMode.Off);
+                    await Until(() => _controller.IsPlaying && _videoSink.WhitePixels < 8, TimeSpan.FromSeconds(4), "Off leaves black video");
+                    await _controller.SetSubtitlesAsync(asset.Id, option!.Mode, option.EmbeddedIndex, option.FilePath);
+                    await Until(() => _videoSink.WhitePixels > 8, TimeSpan.FromSeconds(4), "Subtitle text was not rendered into decoded frames");
+                    var selected = await _controller.GetSubtitlesAsync();
+                    Require(selected.SelectedNativeId >= 0, "Native subtitle track not selected");
+                    await _controller.SetSubtitlesAsync(asset.Id, SubtitleMode.Off);
+                    await Until(() => _videoSink.WhitePixels < 8, TimeSpan.FromSeconds(4), "Turning subtitles off did not remove rendered text");
+                    await _controller.PauseAsync();
+                }
+                _videoSink.MeasureSubtitlePixels = false;
+            });
+
+            await Check("Track pause freezes one lane and resumes in sync, including boundaries", async () =>
+            {
+                var project = MakeSmokeProject();
+                await _controller.SetProjectAsync(project);
+                await _controller.SeekAsync(700);
+                await _controller.PlayPauseAsync();
+                await Task.Delay(350);
+                await _controller.SetTrackPausedAsync("video", true);
+                var frozen = _controller.Diagnostics.Single(d => d.IsVideo).NativeMediaTimeMs;
+                long before = _controller.PositionMs;
+                await Task.Delay(1000);
+                Require(_controller.PositionMs > before + 750, "Other lanes or transport stopped during track pause");
+                Require(Math.Abs(_controller.Diagnostics.Single(d => d.IsVideo).NativeMediaTimeMs-frozen)<350, "Paused video kept advancing");
+                Require(_controller.Diagnostics.Any(d => !d.IsVideo && d.State == "Playing"), "External audio stopped");
+                await _controller.SetTrackPausedAsync("video",false);
+                await Task.Delay(350);
+                var video = _controller.Diagnostics.Single(d=>d.IsVideo);
+                Require(Math.Abs(video.EstimatedMediaTimeMs-video.ExpectedMediaTimeMs)<500, "Resumed video did not catch up to timeline");
+                await _controller.SetTrackPausedAsync("audio-one",true);
+                await Task.Delay(350);
+                Require(_controller.Diagnostics.Single(d=>d.TrackId=="audio-one").State=="Paused", "Audio track did not pause independently");
+                await _controller.SetTrackPausedAsync("audio-one",false);
+                await _controller.SeekAsync(3700);
+                await _controller.SetTrackPausedAsync("video",true);
+                await Until(()=>_controller.PositionMs>4300,TimeSpan.FromSeconds(3));
+                Require(_controller.Diagnostics.Any(d=>d.IsVideo),"Paused picture disappeared at clip boundary");
+                await _controller.SetTrackPausedAsync("video",false);
+                Require(!_controller.Diagnostics.Any(d=>d.IsVideo),"Resume into a gap retained stale video");
+                await _controller.StopAsync();
+                Require(_controller.PausedTrackIds.Count==0,"Stop did not clear independent pauses");
+            });
+            await Check("Voice activity ducks beds, restores silence, and respects mute and amount", async () =>
+            {
+                var voice = await engine.ProbeAsync(Fixture("voice-gated.wav"));
+                var bed = _assets["audio.wav"];
+                var voiceTrack = new TimelineTrack { Id="voice", Name="Voice", Kind=TrackKind.Audio, IsDuckingSource=true };
+                var project = new ProjectDocument { MasterMuted=true, AutoDuckingEnabled=true, DuckAmount=60,
+                    Assets=[voice,bed], Tracks=[new(){Id="video",Kind=TrackKind.Video},voiceTrack,new(){Id="bed",Kind=TrackKind.Audio}],
+                    Clips=[new(){AssetId=voice.Id,TrackId="voice"},new(){AssetId=bed.Id,TrackId="bed"}] };
+                await _controller.SetProjectAsync(project);
+                await _controller.SeekAsync(0);
+                await _controller.PlayPauseAsync();
+                await Until(()=>_controller.Diagnostics.Any(d=>d.TrackId=="bed"&&d.Volume<=42),TimeSpan.FromSeconds(2),"Audible voice did not duck the bed");
+                Require(_controller.Diagnostics.Single(d=>d.TrackId=="voice").Volume==100,"Voice track ducked itself");
+                Require(_controller.Diagnostics.Single(d=>d.TrackId=="voice").ActivityDb is >= -18 and <= -12,"PCM RMS level does not match the known fixture amplitude");
+                await Until(()=>_controller.PositionMs>3600,TimeSpan.FromSeconds(5));
+                Require(_controller.Diagnostics.Single(d=>d.TrackId=="bed").Volume>=98,"Silence did not restore the bed");
+                project.DuckAmount=80; await _controller.UpdateVolumeAsync(project);
+                await Until(()=>_controller.PositionMs>4700,TimeSpan.FromSeconds(3));
+                Require(_controller.Diagnostics.Single(d=>d.TrackId=="bed").Volume<=22,"Adjusted duck amount was not applied");
+                voiceTrack.IsMuted=true; await _controller.UpdateVolumeAsync(project);
+                await Task.Delay(900);
+                Require(_controller.Diagnostics.Single(d=>d.TrackId=="bed").Volume>=98,"Muted voice continued ducking");
+                voiceTrack.IsMuted=false; await _controller.UpdateVolumeAsync(project);
+                await _controller.SeekAsync(500);
+                await Until(()=>_controller.Diagnostics.Any(d=>d.TrackId=="bed"&&d.Volume<=22),TimeSpan.FromSeconds(2),"Seeking lost voice activity");
+                await _controller.PauseAsync();
+                long pausedAt = _controller.PositionMs;
+                await Task.Delay(350);
+                Require(_controller.PositionMs == pausedAt, "Global pause moved the transport during voice analysis");
+                await _controller.PlayPauseAsync();
+                await Until(()=>_controller.Diagnostics.Any(d=>d.TrackId=="bed"&&d.Volume<=22),TimeSpan.FromSeconds(2),"Global resume lost voice activity");
+                await Task.WhenAll(_controller.SeekAsync(900),_controller.SeekAsync(3500),_controller.SeekAsync(500));
+                await Until(()=>_controller.Diagnostics.Any(d=>d.TrackId=="bed"&&d.Volume<=22),TimeSpan.FromSeconds(2),"Rapid seeks lost voice activity");
+                await _controller.SetTrackPausedAsync("voice",true);
+                await Task.Delay(900);
+                Require(_controller.Diagnostics.Single(d=>d.TrackId=="bed").Volume>=98,"Paused voice continued ducking");
+                await _controller.SetTrackPausedAsync("voice",false);
+                // Cold-start pause must not leave a warming analysis decoder stuck paused.
+                project.AutoDuckingEnabled=false; await _controller.UpdateVolumeAsync(project);
+                project.AutoDuckingEnabled=true; await _controller.UpdateVolumeAsync(project);
+                await _controller.PauseAsync();
+                await _controller.PlayPauseAsync();
+                await _controller.SeekAsync(500);
+                await Until(()=>_controller.Diagnostics.Any(d=>d.TrackId=="bed"&&d.Volume<=22),TimeSpan.FromSeconds(2),"Cold-start pause left voice analysis stuck");
+                project.AutoDuckingEnabled=false; await _controller.UpdateVolumeAsync(project);
+                await Task.Delay(600);
+                Require(_controller.Diagnostics.Single(d=>d.TrackId=="bed").Volume==100,"Disabling ducking did not restore the bed");
+                await _controller.StopAsync();
+            });
             if (_args.Contains("--soak", StringComparer.Ordinal))
                 await Check("Ten real minutes of coordinated native playback", () => SoakAsync(engine, runName));
         }
@@ -349,6 +458,7 @@ internal sealed class MediaSuite
 
     private async Task Check(string name, Func<Task> action)
     {
+        if (_args.Contains("--mixer-only") && !name.StartsWith("Seven") && !name.StartsWith("Track pause") && !name.StartsWith("Voice activity")) return;
         Console.WriteLine($"RUN: {name}");
         var timer = Stopwatch.StartNew();
         try
@@ -373,12 +483,12 @@ internal sealed class MediaSuite
         if (requireSettled) Require(_status?.IsBusy != true, "Controller remains busy after completed operation");
     }
 
-    private static async Task Until(Func<bool> condition, TimeSpan timeout)
+    private static async Task Until(Func<bool> condition, TimeSpan timeout, string? message = null)
     {
         var watch = Stopwatch.StartNew();
         while (!condition())
         {
-            if (watch.Elapsed > timeout) throw new TimeoutException($"Playback condition not met within {timeout}");
+            if (watch.Elapsed > timeout) throw new TimeoutException(message ?? $"Playback condition not met within {timeout}");
             await Task.Delay(50);
         }
     }

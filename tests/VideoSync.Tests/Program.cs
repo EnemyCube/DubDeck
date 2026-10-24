@@ -1,8 +1,10 @@
-﻿using System.Text.Json.Nodes;
+using System.Text.Json.Nodes;
 using VideoSync.Core;
 
 var tests = new (string Name, Action Run)[]
 {
+    ("Voice ducking smooths, holds, and releases", Ducking),
+    ("Ducking preferences save while runtime pause does not", DuckPreferences),
     ("Empty projects have zero duration", EmptyProject),
     ("Active scheduling uses exclusive ends and includes audio past video", ActiveScheduling),
     ("Video gaps have no active video", VideoGaps),
@@ -14,7 +16,8 @@ var tests = new (string Name, Action Run)[]
     ("Relative media follows moved project folders", PortablePaths),
     ("Absolute fallback finds media after moving only the project", AbsoluteFallback),
     ("Offline entries survive loading and can be relinked", OfflineRelinking),
-    ("Invalid project files fail with useful errors", InvalidFiles)
+    ("Invalid project files fail with useful errors", InvalidFiles),
+    ("Subtitle choices and portable sidecars round-trip", SubtitlePreferences)
 };
 var failures = 0;
 foreach (var (name, run) in tests)
@@ -313,6 +316,58 @@ static void Throws<T>(Action action) where T : Exception
     throw new Exception($"Expected {typeof(T).Name}.");
 }
 
+
+static void SubtitlePreferences()
+{
+    using var files = new TestFiles();
+    files.Write("Picture.mp4"); files.Write("Music.wav"); files.Write("Picture.en.srt");
+    var project = Fixture(files.Folder);
+    var asset = project.Assets[0];
+    asset.Subtitles = SubtitleMode.External;
+    asset.SubtitleFilePath = Path.Combine(files.Folder, "Picture.en.srt");
+    string path = Path.Combine(files.Folder, "Subs.videosync");
+    ProjectStore.Save(project, path);
+    var loaded = ProjectStore.Load(path);
+    Equal(SubtitleMode.External, loaded.Assets[0].Subtitles);
+    Equal(asset.SubtitleFilePath, loaded.Assets[0].SubtitleFilePath);
+    var json = JsonNode.Parse(File.ReadAllText(path))!;
+    Equal("Picture.en.srt", json["assets"]![0]!["subtitleRelativePath"]!.GetValue<string>());
+    File.Delete(asset.SubtitleFilePath);
+    loaded = ProjectStore.Load(path);
+    Equal(asset.SubtitleFilePath, loaded.Assets[0].SubtitleFilePath);
+    asset.Subtitles = SubtitleMode.Embedded; asset.SubtitleTrackIndex = 1; asset.SubtitleFilePath = null;
+    ProjectStore.Save(project, path);
+    Equal(1, ProjectStore.Load(path).Assets[0].SubtitleTrackIndex);
+    asset.SubtitleTrackIndex = -1;
+    Throws<InvalidDataException>(() => TimelineRules.Validate(project));
+    asset.Subtitles = (SubtitleMode)99;
+    Throws<InvalidDataException>(() => TimelineRules.Validate(project));
+}
+static void Ducking()
+{
+    var envelope = new DuckingEnvelope();
+    for (int i=0;i<5;i++) envelope.Update(true,true,60,.04);
+    if (Math.Abs(envelope.Gain-.4)>.001) throw new Exception("Duck amount must reduce by 60%");
+    envelope.Update(true,false,60,.2);
+    if (Math.Abs(envelope.Gain-.4)>.001) throw new Exception("Hold should bridge short voice gaps");
+    for(int i=0;i<30;i++) envelope.Update(true,false,60,.04);
+    if (Math.Abs(envelope.Gain-1)>.001) throw new Exception("Silence should restore volume");
+    for(int i=0;i<5;i++) envelope.Update(true,true,100,.04);
+    if(envelope.Gain>.001) throw new Exception("100% should silence beds");
+    for(int i=0;i<15;i++) envelope.Update(false,true,100,.04);
+    if(Math.Abs(envelope.Gain-1)>.001) throw new Exception("Disabled must restore volume");
+}
+static void DuckPreferences()
+{
+    var project=Fixture(); project.AutoDuckingEnabled=true; project.DuckAmount=73;
+    project.Tracks[1].IsDuckingSource=true; project.Tracks[1].IsPaused=true;
+    var path=Path.Combine(Path.GetTempPath(),Guid.NewGuid()+".videosync");
+    try {
+        ProjectStore.Save(project,path); var loaded=ProjectStore.Load(path);
+        if(!loaded.AutoDuckingEnabled||loaded.DuckAmount!=73||!loaded.Tracks[1].IsDuckingSource||loaded.Tracks[1].IsPaused)
+            throw new Exception("Ducking settings or runtime pause persistence is incorrect");
+    } finally { File.Delete(path); }
+}
 sealed class TestFiles : IDisposable
 {
     public string Folder { get; } = Path.Combine(Path.GetTempPath(), $"VideoSyncTests-{Guid.NewGuid():N}");
@@ -325,5 +380,3 @@ sealed class TestFiles : IDisposable
     }
     public void Dispose() => Directory.Delete(Folder, recursive: true);
 }
-
-
