@@ -16,7 +16,7 @@ Sync video with commentary, narration, music, and other audio tracks. DubDeck is
 
 Get the latest build from [GitHub Releases](https://github.com/EnemyCube/DubDeck/releases/latest).
 
-- **Portable EXE (recommended):** Download and run `DubDeck-<version>-win.x64-portable.exe`. Earlier releases may call it `DubDeck.exe`.
+- **Portable EXE (recommended):** Download and run `DubDeck-<version>-win.x64-portable.exe`.
 - **Folder ZIP:** Extract the entire archive and run `DubDeck.exe`. Keep the extracted files and folders together.
 
 **Requires Windows 11 x64.** Both editions include .NET and VLC libraries, require no separate runtime installation, and run offline.
