@@ -39,36 +39,16 @@ If the release also provides a folder-edition ZIP, extract the entire archive an
 
 ## Quick start
 
-1. Import a video, then import narration, music, or other audio. Videos append in sequence; each audio file starts at the playhead on a new track.
-2. Drag clips to line up cues. Use **Space** to play/pause, or pause an individual track while the others continue to adjust its alignment.
-3. Set track levels and mark narration tracks **Voice** to trigger automatic ducking. New projects enable Auto duck and mark the first audio track as Voice.
-4. Press **Ctrl+S** to save a `.dubdeck` project. Press **F11** for fullscreen playback.
+1. **Import:** Choose **Import media** (**Ctrl+I**) or drop files into the window. Videos append in sequence; each audio file starts at the playhead on a new track. Wait for loading to finish before importing more.
+2. **Align and edit:** Drag clips to line up cues, or pause/resume an individual track while the others play. Press **Delete** to remove a selected clip; right-click it to replace or relink media.
+3. **Mix:** Adjust track and master levels or mute tracks. Mark narration tracks **Voice** to trigger **Auto duck**, then set **Duck amount**. New projects enable ducking and mark the first audio track as Voice.
+4. **Navigate:** Click the timeline or scrub bar to seek. **Space** plays/pauses, **Left/Right** jumps ten seconds, and **Ctrl+mouse wheel** zooms. **Stop** asks for confirmation before returning to the beginning.
+5. **Watch:** Press **F11** for fullscreen and **Escape** to leave it. Use **Subtitles** to choose embedded tracks or open a subtitle file, and **Track controls** for the fullscreen mixer.
+6. **Save:** **Ctrl+S** saves a `.dubdeck` project with its arrangement, mix, and playhead position. **Ctrl+O** opens a project; **Ctrl+N** starts a new one. Legacy `.videosync` and `.dubsync` projects also open normally.
 
 ## Limitations
 
 DubDeck supports whole-file placement and playback synchronization. It does not trim or split clips, add fades or automation, or export a finished video or audio mix. Playback uses coordinated independent players; frame/sample accuracy and seamless video cuts are not guaranteed.
-
-## Use
-
-- An empty timeline displays a drag-and-drop prompt and an **Import media** button. The prompt disappears while importing or when clips are present.
-- Choose **Import media**, or drop media files into the window. Videos append in sequence. Each audio file starts at the playhead on a new audio track. A successfully imported video sets the project title to its filename without the extension; if several videos are imported, the latest one supplies the title. Audio imports leave the title unchanged. The video title is kept when saving and suggested as the filename for a new project. A loading overlay shows the current file and batch count; wait until it disappears before importing another batch.
-- Audio waveforms appear faintly behind the clips on each track as background analysis finishes. They show source sound and silence, including embedded movie audio, and follow clip moves or alignment delays. Volume and mute do not change the source waveform. Waveforms are cached under %LocalAppData%/DubDeck/Waveforms; missing files keep their offline appearance.
-- Drag clips to change their start time. Audio clips can move between audio lanes. Clips in one lane cannot overlap; different lanes play together. Hold Alt to bypass snapping.
-- Click an empty timeline area or drag the ruler to seek. Use the scrub bar below the preview for another way to seek. Use the mouse wheel to scroll backward/forward along the timeline. Shift+wheel scrolls vertically between tracks; the wheel over track labels also scrolls vertically. Use +/−, Fit timeline, or Ctrl+mouse wheel to zoom.
-- Use each track's slider and mute button for its level. The Video slider controls embedded video sound. Master volume affects all tracks; muting preserves the slider setting.
-- Click **Stop**, then confirm **Stop** to stop playback and return to 00:00. Playback keeps running if it was already playing; the playhead resets after confirmation. Cancel, Escape, or clicking outside dismisses the question; Cancel is focused when it opens. This applies to workspace and fullscreen Stop buttons.
-- Press Space to play/pause, Home to seek to the beginning, Left/Right arrows to jump backward/forward ten seconds, F11 for fullscreen, and Escape to leave fullscreen. The fullscreen overlay includes a seek bar and elapsed/total time, playback and master volume controls, subtitles, and a **Track controls** button. Its scrollable pop-up contains track mixer cards with level/mute/pause/Voice controls and ducking settings. Escape first closes the pop-up, then exits fullscreen when pressed again. The playback bar stays visible while the pop-up is open. Move the mouse to reveal it; it hides after three seconds of playback inactivity. Double-click the video to toggle fullscreen.
-- Use **Pause** on an individual track to freeze that movie or audio track while the timeline and other tracks continue. **Resume** continues from the paused position while the other tracks keep playing, so you can line up audio cues with video. The resulting delay stays in effect across global pause/resume and clip boundaries, and delayed tracks can finish beyond the original project end. While the global transport advances, every clip on the paused track shifts right on the timeline by the pause duration. Resume stops the shifting and continues from the paused cue. These are real placement changes: Stop and seeking preserve them, saving stores them, and reopening restores them. Seeking retains individual Pause buttons at the new timeline position. Global pause freezes both the timeline and the placement changes.
-- Auto duck is on by default in new projects, and the first imported audio track (**Audio 1**) is marked **Voice**. Additional audio tracks are not Voice triggers by default. Saved project preferences are preserved. Mark narration tracks **Voice**, toggle **Auto duck**, and adjust **Duck amount**. Audible sound on any unmuted, unpaused Voice track lowers all other tracks, including the movie's original sound. A 60% amount leaves other tracks at 40% of their usual level; 100% silences them. Voice tracks retain their own levels. Silence restores the other levels with a short hold and smooth release. The detector responds to sound, rather than recognizing speech; background noise on a Voice track can also trigger it.
-- Choose the **Subtitles icon** (caption lines inside a frame) / **Subtitles** while a movie is loaded for Automatic, Off, embedded language tracks, or **Open subtitle file**. Automatic prefers matching sidecars such as Movie.srt or Movie.en.srt beside Movie.mp4, then an embedded track. SRT, ASS/SSA, VTT, SUB, and IDX files can be selected where supported by VLC. Subtitle choices are saved per source; missing subtitle files can be located through the same menu.
-- Select a clip and press Delete to remove it. Right-click a clip to locate or replace its source. A replacement must have the same media type and must fit without overlapping another clip.
-- Save with Ctrl+S, Save As with Ctrl+Shift+S, open with Ctrl+O, start a project with Ctrl+N, and import with Ctrl+I. Saving includes the current playhead time; reopening restores that position with playback paused. Older projects without a saved position open at the beginning. If the saved time exceeds the project length, it is clamped to the end.
-
-New projects use **.dubdeck**. DubDeck also recognizes legacy **.videosync** and **.dubsync** project files when opening, dropping, or launching a project. Saving an existing project keeps its current filename; Save As suggests .dubdeck. The older Start-VideoSync.ps1 and Start-DubSync.ps1 launchers still forward to DubDeck.
-
-You can also drag a project onto `DubDeck.exe`, or pass a project or media path as its first command-line argument.
-
-Projects contain source references, subtitle choices, arrangement/volume settings, saved playhead time, and ducking preferences, without copying or changing media files. Keep the project and media together when moving them. Missing sources remain red/offline until relinked. Manual timeline edits pause playback; deleting leaves a gap. Alignment through individual track pause keeps the other tracks playing.
 
 ## Build and verify
 
