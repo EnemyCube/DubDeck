@@ -48,10 +48,6 @@ If the release also provides a folder-edition ZIP, extract the entire archive an
 
 DubDeck supports whole-file placement and playback synchronization. It does not trim or split clips, add fades or automation, or export a finished video or audio mix. Playback uses coordinated independent players; frame/sample accuracy and seamless video cuts are not guaranteed.
 
-## What's new in 1.7.0
-
-DubDeck is the new name for Video Sync. The app, fullscreen controls, executable, icon, and project dialogs now use the DubDeck name. New projects use `.dubdeck`; existing `.videosync` and `.dubsync` projects still open, and saving an existing project keeps its filename. The project JSON format remains version 1, and existing waveform caches are reused automatically.
-
 ## Use
 
 - An empty timeline displays a drag-and-drop prompt and an **Import media** button. The prompt disappears while importing or when clips are present.
