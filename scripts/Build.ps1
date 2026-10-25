@@ -57,7 +57,11 @@ try {
         }
         else {
             Copy-Item -LiteralPath (Join-Path $projectRoot 'README.md') -Destination (Join-Path $publishFolder 'README.md')
+            Copy-Item -LiteralPath (Join-Path $projectRoot 'LICENSE') -Destination (Join-Path $publishFolder 'LICENSE')
             Copy-Item -LiteralPath (Join-Path $projectRoot 'THIRD-PARTY-NOTICES.md') -Destination (Join-Path $publishFolder 'THIRD-PARTY-NOTICES.md')
+            $imageDestination = Join-Path $publishFolder 'docs\images'
+            New-Item -ItemType Directory -Force -Path $imageDestination | Out-Null
+            Get-ChildItem -LiteralPath (Join-Path $projectRoot 'docs\images') -File | Copy-Item -Destination $imageDestination -Force
             $licenseDestination = Join-Path $publishFolder 'licenses'
             New-Item -ItemType Directory -Force -Path $licenseDestination | Out-Null
             Get-ChildItem -LiteralPath (Join-Path $projectRoot 'licenses') -File | Copy-Item -Destination $licenseDestination -Force
