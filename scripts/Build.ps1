@@ -1,6 +1,7 @@
 param(
     [ValidateSet('Debug','Release')][string]$Configuration = 'Release',
     [switch]$Publish,
+    [switch]$Portable,
     [switch]$MediaTests,
     [switch]$Soak
 )
@@ -36,19 +37,34 @@ try {
         & $taskDotnet @mediaArgs
         if ($LASTEXITCODE -ne 0) { throw 'Media tests failed.' }
     }
-    if ($Publish) {
+    if ($Publish -or $Portable) {
         [xml]$applicationProject = Get-Content -LiteralPath (Join-Path $projectRoot "src\VideoSync.App\VideoSync.App.csproj")
         $releaseName = "VideoSync-" + $applicationProject.Project.PropertyGroup.Version
-        & $taskDotnet publish src/VideoSync.App -c $Configuration -r win-x64 --self-contained true -p:PublishSingleFile=false ("-p:PublishDir=../../artifacts/" + $releaseName + "/")
+        if ($Portable) {
+            $releaseName += '-Portable'
+            & $taskDotnet publish src/VideoSync.App -c $Configuration -p:PublishProfile=Portable ("-p:PublishDir=../../artifacts/" + $releaseName + "/")
+        }
+        else {
+            & $taskDotnet publish src/VideoSync.App -c $Configuration -r win-x64 --self-contained true -p:PublishSingleFile=false ("-p:PublishDir=../../artifacts/" + $releaseName + "/")
+        }
         if ($LASTEXITCODE -ne 0) { throw 'Publish failed.' }
         $publishFolder = Join-Path $projectRoot ("artifacts\" + $releaseName)
-        Copy-Item -LiteralPath (Join-Path $projectRoot 'README.md') -Destination (Join-Path $publishFolder 'README.md')
-        Copy-Item -LiteralPath (Join-Path $projectRoot 'THIRD-PARTY-NOTICES.md') -Destination (Join-Path $publishFolder 'THIRD-PARTY-NOTICES.md')
-        $licenseDestination = Join-Path $publishFolder 'licenses'
-        New-Item -ItemType Directory -Force -Path $licenseDestination | Out-Null
-        Get-ChildItem -LiteralPath (Join-Path $projectRoot 'licenses') -File | Copy-Item -Destination $licenseDestination -Force
+        if ($Portable) {
+            $publishedFiles = @(Get-ChildItem -LiteralPath $publishFolder -Force)
+            if ($publishedFiles.Count -ne 1 -or $publishedFiles[0].Name -ne 'VideoSync.exe') {
+                throw 'Portable publish must contain only VideoSync.exe. Use a clean portable output directory.'
+            }
+        }
+        else {
+            Copy-Item -LiteralPath (Join-Path $projectRoot 'README.md') -Destination (Join-Path $publishFolder 'README.md')
+            Copy-Item -LiteralPath (Join-Path $projectRoot 'THIRD-PARTY-NOTICES.md') -Destination (Join-Path $publishFolder 'THIRD-PARTY-NOTICES.md')
+            $licenseDestination = Join-Path $publishFolder 'licenses'
+            New-Item -ItemType Directory -Force -Path $licenseDestination | Out-Null
+            Get-ChildItem -LiteralPath (Join-Path $projectRoot 'licenses') -File | Copy-Item -Destination $licenseDestination -Force
+        }
         $cacheProcess = Start-Process -FilePath (Join-Path $publishFolder 'VideoSync.exe') -ArgumentList '--initialize-vlc-cache' -WindowStyle Hidden -PassThru -Wait
         if ($cacheProcess.ExitCode -ne 0) { throw 'VLC cache initialization failed.' }
+        if ($Portable) { Write-Output ('Portable size: ' + [math]::Round((Get-Item -LiteralPath (Join-Path $publishFolder 'VideoSync.exe')).Length / 1MB, 1) + ' MiB') }
         Write-Output ('Ready: ' + (Join-Path $publishFolder 'VideoSync.exe'))
     }
 }

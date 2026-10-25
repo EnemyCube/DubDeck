@@ -23,12 +23,17 @@ public partial class MainWindow
         {
             void Check(bool condition, string message) { if (!condition) throw new InvalidOperationException(message); checks.Add(message); File.AppendAllText(Path.Combine(directory, "progress.txt"), message + Environment.NewLine); }
             await Task.Delay(300);
+            UpdateLayout();
+            var emptyLane = (FrameworkElement)TrackHeaders.Children[0];
+            Check(Math.Abs(emptyLane.TranslatePoint(new Point(), TimelinePanel).Y -
+                Timeline.TranslatePoint(new Point(0, TimelineSurface.RulerHeight), TimelinePanel).Y) < .5,
+                "The initial single-track workspace reserves the time ruler before the first track controls");
             Capture("01-empty.png");
             Check(ActualWidth >= 960 && Timeline.ActualWidth >= 900, "Initial workspace is laid out");
             string fixture = App.FixtureDirectory ?? Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../../artifacts/media-fixtures"));
             string disposableVideo = Path.Combine(directory, "test-video.mp4");
             File.Copy(Path.Combine(fixture, "video.mp4"), disposableVideo, true);
-            var importing=ImportFilesAsync(new[] { disposableVideo, Path.Combine(fixture, "video.mov"), Path.Combine(fixture, "audio.wav"), Path.Combine(fixture, "audio.flac") });
+            var importing=ImportFilesAsync(new[] { disposableVideo, Path.Combine(fixture, "video.mov"), Path.Combine(fixture, "voice-gated.wav"), Path.Combine(fixture, "audio.flac") });
             Check(_importing && ImportOverlay.Visibility==Visibility.Visible && !ImportButton.IsEnabled && !Header.IsEnabled && !TimelinePanel.IsEnabled,
                 "Import shows an obvious loading overlay and disables workspace controls");
             await ImportFilesAsync(new[] { Path.Combine(fixture,"audio.mp3") });
@@ -44,6 +49,10 @@ public partial class MainWindow
             Check(_project.AutoDuckingEnabled && _project.Tracks.First(t => t.Kind == TrackKind.Audio).IsDuckingSource && !_project.Tracks.Last().IsDuckingSource,
                 "Import defaults Auto duck on with only Audio 1 marked Voice");
             Check(SubtitlesButton.Content is System.Windows.Controls.Image { Source: not null }, "Subtitles button displays the downloaded captions icon");
+            await WaitForWaveformsAsync();
+            Check(_project.Assets.Where(a => a.HasAudio).All(a => Timeline.HasWaveform(a.Id)),
+                "Background waveforms are available for imported videos and external audio files");
+            await CheckTimelineNavigationAsync(directory, Check);
             long duration = TimelineRules.Duration(_project);
             var audio = _project.Assets.First(a => !a.HasVideo);
             var track = _project.Tracks.First(t => t.Kind == TrackKind.Audio);
@@ -75,12 +84,15 @@ public partial class MainWindow
             Timeline.Select(clip.Id);
             Check(!TimelineRules.TryMove(_project, clip.Id, "video", 3000, out _), "Overlapping video placement is rejected");
             UpdateProjectUI();
+            Check(Timeline.VisibleWaveformColumns > 0 && Timeline.VisibleWaveformColumns < 5000,
+                "Faint waveform drawing is bounded to visible clip backgrounds");
             Capture("02-timeline.png");
             long paused = _playback.PositionMs;
             ToggleFullscreen();
             await Task.Delay(250);
             Check(Header.Visibility == Visibility.Collapsed && FullVideoControls.Visibility == Visibility.Visible, "Fullscreen hides editing panels and exposes transport");
             Check(_playback.PositionMs == paused, "Fullscreen preserves paused position");
+            Check(TrackButtonBesideSubtitles(FullTrackButton, FullSubtitlesButton), "Video fullscreen places Track controls immediately left of Subtitles");
             ShowStatus(new VideoSync.App.Media.PlaybackStatus(_playback.PositionMs,TimelineRules.Duration(_project),false,false,null));
             double fullscreenTarget=FullSeekBar.Value+300;
             FullSeekBar.Value=fullscreenTarget;
@@ -163,6 +175,7 @@ public partial class MainWindow
             await _playback.SeekAsync(duration + 1500);
             await Task.Delay(250);
             Check(!_videoVisible && EmptyPreview.Visibility == Visibility.Collapsed && FullEmptyControls.Visibility == Visibility.Visible, "Video gaps stay black while fullscreen audio controls remain available");
+            Check(TrackButtonBesideSubtitles(EmptyTrackButton, EmptySubtitlesButton), "Audio-only fullscreen places Track controls immediately left of Subtitles");
             Capture("03-fullscreen.png");
             EmptyTrackButton.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Button.ClickEvent));
             await Task.Delay(150);
@@ -207,6 +220,103 @@ public partial class MainWindow
             bitmap.Render(target);
             var encoder = new PngBitmapEncoder(); encoder.Frames.Add(BitmapFrame.Create(bitmap));
             using var output = File.Create(Path.Combine(directory, name)); encoder.Save(output);
+        }
+    }
+    private static bool TrackButtonBesideSubtitles(System.Windows.Controls.Button tracks, System.Windows.Controls.Button subtitles)
+    {
+        if (tracks.Parent is not System.Windows.Controls.StackPanel parent || subtitles.Parent != parent) return false;
+        var position = tracks.TranslatePoint(new Point(), subtitles);
+        return parent.Children.IndexOf(subtitles) == parent.Children.IndexOf(tracks) + 1 &&
+            Math.Abs(position.Y) < .5 && position.X + tracks.ActualWidth <= .5;
+    }
+
+    private async Task CheckTimelineNavigationAsync(string directory, Action<bool, string> check)
+    {
+        int originalTrackCount = _project.Tracks.Count;
+        double originalScale = Timeline.Scale;
+        var originalPanelHeight = Root.RowDefinitions[3].Height;
+        try
+        {
+            Root.RowDefinitions[3].Height = new GridLength(500);
+            UpdateProjectUI();
+            await SettleLayout();
+            check(Timeline.ActualHeight < TimelineScroll.ViewportHeight && LabelsAligned(),
+                "Short timelines align labels beneath the ruler when the viewport is taller than the tracks");
+            Root.RowDefinitions[3].Height = originalPanelHeight;
+            await SettleLayout();
+            check(LabelsAligned(), "Resizing the timeline viewport preserves the ruler and track-label alignment");
+            while (_project.Tracks.Count < 24) _project.AddAudioTrack();
+            UpdateProjectUI();
+            Timeline.Scale = 400;
+            await SettleLayout();
+            check(TrackHeaders.Children.Cast<FrameworkElement>().All(header => Math.Abs(header.ActualHeight - TimelineSurface.TrackHeight) < .5) && LabelsAligned(),
+                "Every track label uses the timeline lane height and aligns at the top");
+
+            long position = _playback.PositionMs;
+            var wheel = new System.Windows.Input.MouseWheelEventArgs(System.Windows.Input.Mouse.PrimaryDevice, Environment.TickCount, -120)
+                { RoutedEvent = System.Windows.Input.Mouse.PreviewMouseWheelEvent };
+            Timeline.RaiseEvent(wheel);
+            await SettleLayout();
+            check(wheel.Handled && TimelineScroll.HorizontalOffset > 0 && TimelineScroll.VerticalOffset == 0 && _playback.PositionMs == position,
+                "The routed mouse wheel scrolls along the timeline without moving the playhead");
+            ScrollTimelineWheel(120, System.Windows.Input.ModifierKeys.None);
+            await SettleLayout();
+            check(TimelineScroll.HorizontalOffset == 0, "Reverse wheel scrolling returns toward the timeline start");
+
+            ScrollTimelineWheel(-120, System.Windows.Input.ModifierKeys.Shift);
+            await SettleLayout();
+            var headerWheel = new System.Windows.Input.MouseWheelEventArgs(System.Windows.Input.Mouse.PrimaryDevice, Environment.TickCount, -120)
+                { RoutedEvent = System.Windows.Input.Mouse.PreviewMouseWheelEvent };
+            TrackHeaders.RaiseEvent(headerWheel);
+            await SettleLayout();
+            check(headerWheel.Handled && TimelineScroll.VerticalOffset >= 79 && LabelsAligned(),
+                "Shift-wheel and wheel over track labels scroll vertically with matching lane positions");
+            TimelineScroll.ScrollToBottom();
+            await SettleLayout();
+            check(TimelineScroll.VerticalOffset > 1000 && Math.Abs(TrackScroll.VerticalOffset - TimelineScroll.VerticalOffset) < .5 && LabelsAligned(),
+                "All 24 track labels remain aligned at the bottom with a horizontal scrollbar");
+            var bitmap = new RenderTargetBitmap((int)ActualWidth, (int)ActualHeight, 96, 96, PixelFormats.Pbgra32);
+            bitmap.Render(this);
+            var encoder = new PngBitmapEncoder(); encoder.Frames.Add(BitmapFrame.Create(bitmap));
+            using (var output = File.Create(Path.Combine(directory, "02a-scrolled-tracks.png"))) encoder.Save(output);
+
+            ScrollTimelineWheel(-120, System.Windows.Input.ModifierKeys.Control);
+            await SettleLayout();
+            check(Timeline.Scale < 400 && Timeline.Scale > 300, "Ctrl-wheel retains timeline zoom");
+            if (TimelineScroll.ViewportWidth >= 900)
+            {
+                Timeline.Scale = .02;
+                await SettleLayout();
+                TimelineScroll.ScrollToBottom();
+                await SettleLayout();
+                check(TimelineScroll.ScrollableWidth == 0 && LabelsAligned(),
+                    "Track labels stay aligned when the horizontal scrollbar disappears");
+            }
+        }
+        finally
+        {
+            _project.Tracks.RemoveRange(originalTrackCount, _project.Tracks.Count - originalTrackCount);
+            Root.RowDefinitions[3].Height = originalPanelHeight;
+            Timeline.Scale = originalScale;
+            UpdateProjectUI();
+            TimelineScroll.ScrollToHorizontalOffset(0);
+            TimelineScroll.ScrollToVerticalOffset(0);
+            await SettleLayout();
+        }
+
+        bool LabelsAligned()
+        {
+            var timelineOrigin = Timeline.TranslatePoint(new Point(), TimelinePanel);
+            return TrackHeaders.Children.Cast<FrameworkElement>().Select((header, lane) =>
+                Math.Abs(header.TranslatePoint(new Point(), TimelinePanel).Y -
+                    (timelineOrigin.Y + TimelineSurface.RulerHeight + lane * TimelineSurface.TrackHeight)) < .5).All(aligned => aligned);
+        }
+        async Task SettleLayout()
+        {
+            UpdateLayout();
+            await System.Windows.Threading.Dispatcher.Yield(System.Windows.Threading.DispatcherPriority.Background);
+            await Task.Delay(50);
+            UpdateLayout();
         }
     }
 }

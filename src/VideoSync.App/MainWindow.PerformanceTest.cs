@@ -34,6 +34,9 @@ public partial class MainWindow
             if (App.SimulateVideoStartupStall) Check(_playback.UsedSoftwareVideoFallback, "A hardware startup stall retries real playback using software decoding");
             Check(TimelineRules.Duration(_project) > 6 * 3600000L && _project.Clips.Count > 10000, "A six-hour timeline with over 10,000 clips is loaded");
             Check(Timeline.VisibleClipCount < 100 && Timeline.RulerLabelCount < 100, "Drawing work is restricted to the visible viewport");
+            await WaitForWaveformsAsync();
+            Check(Timeline.HasWaveform(video.Id) && Timeline.HasWaveform(audio.Id) && Timeline.VisibleWaveformColumns < 5000,
+                "Background waveforms cover video/audio while drawing only the visible viewport");
             int initialScenes = Timeline.SceneBuildCount;
             var playheadTimer = Stopwatch.StartNew();
             for (int i = 0; i < 1000; i++) Timeline.Playhead = i * 10;

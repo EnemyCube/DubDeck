@@ -92,6 +92,58 @@ internal sealed class MediaSuite
                     Console.WriteLine($"  {name}: {asset.DurationMs} ms; video={asset.HasVideo}, audio={asset.HasAudio}");
                 }
             });
+            await Check("Waveform extraction, silence, cache recovery, and cancellation", async () =>
+            {
+                string cache = Path.Combine(_reportDirectory, "waveforms-" + runName);
+                await using var waveforms = new WaveformService(engine.LibVLC, cache);
+                foreach (var entry in _assets)
+                {
+                    var waveform = await waveforms.GetAsync(entry.Value.FilePath, entry.Value.DurationMs);
+                    Require(waveform is not null && waveform.PeakBetween(0, entry.Value.DurationMs) > .02,
+                        entry.Key + ": real PCM did not produce visible waveform peaks");
+                }
+                int decodes = waveforms.DecodeCount;
+                var first = _assets["audio.wav"];
+                var cached = await waveforms.GetAsync(first.FilePath, first.DurationMs);
+                Require(cached is not null && waveforms.DecodeCount == decodes, "Repeated waveform requests decoded the file again");
+                var extractionTimer = Stopwatch.StartNew();
+                var voice = await waveforms.GetAsync(Fixture("voice-gated.wav"), 12000);
+                Require(extractionTimer.ElapsedMilliseconds < 8000, "Waveform generation is paced to real-time playback");
+                Require(voice is not null && voice.PeakBetween(500, 1500) > .15 && voice.PeakBetween(2500, 3500) < .001 &&
+                    voice.PeakBetween(4500, 5500) > .15 && voice.PeakBetween(8500, 9500) > .15, "Waveform lost audible cues or painted through source silence");
+                foreach (string cacheFile in Directory.GetFiles(cache, "*.wave")) File.WriteAllText(cacheFile, "broken cache");
+                decodes = waveforms.DecodeCount;
+                Require(await waveforms.GetAsync(first.FilePath, first.DurationMs) is not null && waveforms.DecodeCount == decodes + 1,
+                    "A damaged waveform cache did not regenerate");
+                string changed = Path.Combine(cache, "changed.wav");
+                File.Copy(first.FilePath, changed);
+                Require(await waveforms.GetAsync(changed, first.DurationMs) is not null, "Copied waveform source did not decode");
+                decodes = waveforms.DecodeCount;
+                File.SetLastWriteTimeUtc(changed, File.GetLastWriteTimeUtc(changed).AddSeconds(2));
+                Require(await waveforms.GetAsync(changed, first.DurationMs) is not null && waveforms.DecodeCount == decodes + 1,
+                    "Replacing a source reused stale waveform cache data");
+                Require(await waveforms.GetAsync(Path.Combine(cache, "missing.wav"), 8000) is null,
+                    "Missing sources should leave an empty waveform");
+                await MustFail(() => waveforms.GetAsync(Fixture("corrupt.mp4"), 1000), "Corrupt source was accepted by waveform extraction");
+                using var canceled = new CancellationTokenSource();
+                canceled.Cancel();
+                try { await waveforms.GetAsync(first.FilePath, first.DurationMs, canceled.Token); throw new InvalidOperationException("Canceled waveform request was accepted"); }
+                catch (OperationCanceledException) { }
+                string pulse = Fixture("pulse-10min.mp4");
+                if (File.Exists(pulse))
+                {
+                    using var activeCancellation = new CancellationTokenSource();
+                    long framesBefore = waveforms.DecodedFrames;
+                    var running = waveforms.GetAsync(pulse, 605000, activeCancellation.Token);
+                    var started = Stopwatch.StartNew();
+                    while (waveforms.DecodedFrames == framesBefore && !running.IsCompleted && started.ElapsedMilliseconds < 5000) await Task.Delay(1);
+                    Require(waveforms.ActiveDecodes == 1 && waveforms.DecodedFrames > framesBefore, "Cancellation check did not receive real PCM before stopping the waveform decoder");
+                    activeCancellation.Cancel();
+                    try { await running.WaitAsync(TimeSpan.FromSeconds(3)); throw new InvalidOperationException("Active waveform decoder ignored cancellation"); }
+                    catch (OperationCanceledException) { }
+                    Require(waveforms.ActiveDecodes == 0, "Canceled waveform decoder retained native resources");
+                }
+            });
             await Check("Corrupt and missing media rejected", async () =>
             {
                 await MustFail(() => engine.ProbeAsync(Fixture("corrupt.mp4"), CancellationToken.None), "Corrupt media was accepted");
@@ -492,6 +544,7 @@ internal sealed class MediaSuite
 
     private async Task Check(string name, Func<Task> action)
     {
+        if (_args.Contains("--waveform-only") && !name.StartsWith("Seven") && !name.StartsWith("Waveform")) return;
         if (_args.Contains("--mixer-only") && !name.StartsWith("Seven") && !name.StartsWith("Track pause") && !name.StartsWith("Voice activity")) return;
         Console.WriteLine($"RUN: {name}");
         var timer = Stopwatch.StartNew();
@@ -527,7 +580,7 @@ internal sealed class MediaSuite
         }
     }
 
-    private static async Task MustFail(Func<Task<MediaAsset>> operation, string message)
+    private static async Task MustFail<T>(Func<Task<T>> operation, string message)
     {
         try { await operation(); }
         catch (Exception error) when (error is not OperationCanceledException) { return; }

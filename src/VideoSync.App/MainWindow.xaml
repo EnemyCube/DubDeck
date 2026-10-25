@@ -43,7 +43,7 @@
        <Border.Effect><DropShadowEffect BlurRadius="24" ShadowDepth="6" Opacity=".3"/></Border.Effect>
        <StackPanel>
         <Grid Margin="0,0,0,14">
-         <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+         <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
          <StackPanel VerticalAlignment="Center" Margin="0,0,12,0"><TextBlock Text="VIDEO SYNC" FontSize="10" Foreground="#8194B0"/><TextBlock x:Name="FullTitle" Text="Untitled" FontSize="15" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" Margin="0,3,0,0"/></StackPanel>
          <StackPanel Grid.Column="1" Orientation="Horizontal">
           <Button x:Name="FullPlay" Style="{StaticResource OsdButton}" Width="46" Height="46" Background="#6CE5C0" Foreground="#10251E" BorderBrush="#6CE5C0" local:AppIcons.Kind="play" Click="PlayClicked" ToolTip="Play / pause · Space" AutomationProperties.Name="Play or pause"/>
@@ -54,15 +54,13 @@
           <Button x:Name="FullMute" Style="{StaticResource OsdButton}" Click="MasterMuteClicked" ToolTip="Mute master" AutomationProperties.Name="Mute master"/>
           <StackPanel VerticalAlignment="Center" Margin="4,0,0,0"><TextBlock Text="MASTER" FontSize="9" Foreground="#8194B0" Margin="3,0,0,0"/><Slider x:Name="FullVolume" Width="105" Value="100" ValueChanged="MasterVolumeChanged" ToolTip="Master volume" AutomationProperties.Name="Master volume"/></StackPanel>
           <TextBlock x:Name="FullMasterValue" Text="100%" FontSize="11" Width="37" Foreground="#C1CEE0" Margin="6,0,6,0"/>
-          <Button Style="{StaticResource OsdButton}" local:AppIcons.Kind="captions" Click="SubtitlesClicked" ToolTip="Subtitles" AutomationProperties.Name="Subtitles"/>
+          <Button x:Name="FullTrackButton" Style="{StaticResource OsdButton}" Content="Track controls" Width="Auto" Padding="12,6" Click="TrackControlsClicked" ToolTip="Track volume, mute, pause, Voice and auto duck" AutomationProperties.Name="Track controls"/>
+          <Button x:Name="FullSubtitlesButton" Style="{StaticResource OsdButton}" local:AppIcons.Kind="captions" Click="SubtitlesClicked" ToolTip="Subtitles" AutomationProperties.Name="Subtitles"/>
           <Button Style="{StaticResource OsdButton}" local:AppIcons.Kind="minimize" Click="FullscreenClicked" ToolTip="Exit fullscreen · Esc" AutomationProperties.Name="Exit fullscreen"/>
          </StackPanel>
         </Grid>
         <Slider x:Name="FullSeekBar" Maximum="1" PreviewMouseLeftButtonDown="SeekStarted" PreviewMouseLeftButtonUp="SeekFinished" ValueChanged="SeekValueChanged" ToolTip="Seek" AutomationProperties.Name="Fullscreen seek" Margin="0,0,0,14"/>
-        <DockPanel LastChildFill="False">
-         <Button x:Name="FullTrackButton" Content="Track controls" Height="34" Padding="14,6" Click="TrackControlsClicked" ToolTip="Track volume, mute, pause, Voice and auto duck" AutomationProperties.Name="Track controls" DockPanel.Dock="Left"/>
-         <TextBlock Text="Space  Play / pause     ← / →  10s" DockPanel.Dock="Right" FontSize="10" Foreground="#8194B0"/>
-        </DockPanel>
+        <TextBlock HorizontalAlignment="Right" Text="Space  Play / pause     ← / →  10s" FontSize="10" Foreground="#8194B0"/>
         <Popup x:Name="FullTrackPopup" Placement="Top" PlacementTarget="{Binding ElementName=FullVideoControls}" HorizontalOffset="24" VerticalOffset="-12" AllowsTransparency="True" StaysOpen="False" Opened="TrackPopupOpened" Closed="TrackPopupClosed">
          <Border Width="720" Padding="20" CornerRadius="14" Background="#FA161E2B" BorderBrush="#43556E" BorderThickness="1" Focusable="True" KeyboardNavigation.TabNavigation="Cycle" PreviewKeyDown="TrackPopupKeyDown" TextElement.Foreground="#EBEFF7" TextElement.FontFamily="Segoe UI">
           <StackPanel>
@@ -81,7 +79,7 @@
        <Border.Effect><DropShadowEffect BlurRadius="24" ShadowDepth="6" Opacity=".3"/></Border.Effect>
        <StackPanel>
         <Grid Margin="0,0,0,14">
-         <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+         <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
          <StackPanel VerticalAlignment="Center" Margin="0,0,12,0"><TextBlock Text="VIDEO SYNC" FontSize="10" Foreground="#8194B0"/><TextBlock x:Name="EmptyTitle" Text="Untitled" FontSize="15" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" Margin="0,3,0,0"/></StackPanel>
          <StackPanel Grid.Column="1" Orientation="Horizontal">
           <Button x:Name="EmptyPlay" Style="{StaticResource OsdButton}" Width="46" Height="46" Background="#6CE5C0" Foreground="#10251E" BorderBrush="#6CE5C0" local:AppIcons.Kind="play" Click="PlayClicked" ToolTip="Play / pause · Space" AutomationProperties.Name="Play or pause"/>
@@ -92,15 +90,13 @@
           <Button x:Name="EmptyMute" Style="{StaticResource OsdButton}" Click="MasterMuteClicked" ToolTip="Mute master" AutomationProperties.Name="Mute master"/>
           <StackPanel VerticalAlignment="Center" Margin="4,0,0,0"><TextBlock Text="MASTER" FontSize="9" Foreground="#8194B0" Margin="3,0,0,0"/><Slider x:Name="EmptyVolume" Width="105" Value="100" ValueChanged="MasterVolumeChanged" ToolTip="Master volume" AutomationProperties.Name="Master volume"/></StackPanel>
           <TextBlock x:Name="EmptyMasterValue" Text="100%" FontSize="11" Width="37" Foreground="#C1CEE0" Margin="6,0,6,0"/>
-          <Button Style="{StaticResource OsdButton}" local:AppIcons.Kind="captions" Click="SubtitlesClicked" ToolTip="Subtitles" AutomationProperties.Name="Subtitles"/>
+          <Button x:Name="EmptyTrackButton" Style="{StaticResource OsdButton}" Content="Track controls" Width="Auto" Padding="12,6" Click="TrackControlsClicked" ToolTip="Track volume, mute, pause, Voice and auto duck" AutomationProperties.Name="Track controls"/>
+          <Button x:Name="EmptySubtitlesButton" Style="{StaticResource OsdButton}" local:AppIcons.Kind="captions" Click="SubtitlesClicked" ToolTip="Subtitles" AutomationProperties.Name="Subtitles"/>
           <Button Style="{StaticResource OsdButton}" local:AppIcons.Kind="minimize" Click="FullscreenClicked" ToolTip="Exit fullscreen · Esc" AutomationProperties.Name="Exit fullscreen"/>
          </StackPanel>
         </Grid>
         <Slider x:Name="EmptySeekBar" Maximum="1" PreviewMouseLeftButtonDown="SeekStarted" PreviewMouseLeftButtonUp="SeekFinished" ValueChanged="SeekValueChanged" ToolTip="Seek" AutomationProperties.Name="Fullscreen seek" Margin="0,0,0,14"/>
-        <DockPanel LastChildFill="False">
-         <Button x:Name="EmptyTrackButton" Content="Track controls" Height="34" Padding="14,6" Click="TrackControlsClicked" ToolTip="Track volume, mute, pause, Voice and auto duck" AutomationProperties.Name="Track controls" DockPanel.Dock="Left"/>
-         <TextBlock Text="Space  Play / pause     ← / →  10s" DockPanel.Dock="Right" FontSize="10" Foreground="#8194B0"/>
-        </DockPanel>
+        <TextBlock HorizontalAlignment="Right" Text="Space  Play / pause     ← / →  10s" FontSize="10" Foreground="#8194B0"/>
         <Popup x:Name="EmptyTrackPopup" Placement="Top" PlacementTarget="{Binding ElementName=FullEmptyControls}" HorizontalOffset="24" VerticalOffset="-12" AllowsTransparency="True" StaysOpen="False" Opened="TrackPopupOpened" Closed="TrackPopupClosed">
          <Border Width="720" Padding="20" CornerRadius="14" Background="#FA161E2B" BorderBrush="#43556E" BorderThickness="1" Focusable="True" KeyboardNavigation.TabNavigation="Cycle" PreviewKeyDown="TrackPopupKeyDown" TextElement.Foreground="#EBEFF7" TextElement.FontFamily="Segoe UI">
           <StackPanel>
@@ -136,7 +132,19 @@
   </Grid>
   <Border x:Name="TimelinePanel" Grid.Row="3" Background="{StaticResource Panel}" BorderBrush="#2A3343" BorderThickness="0,1,0,1"><Grid><Grid.RowDefinitions><RowDefinition Height="40"/><RowDefinition Height="32"/><RowDefinition Height="*"/></Grid.RowDefinitions>
    <DockPanel Margin="18,0" LastChildFill="False"><StackPanel Orientation="Horizontal" DockPanel.Dock="Left"><TextBlock Text="TIMELINE" FontWeight="SemiBold" Foreground="#98A6BC" FontSize="11"/><TextBlock Text="Whole files · drag to position" Foreground="#79879C" Margin="18,0,0,0"/></StackPanel><StackPanel Orientation="Horizontal" DockPanel.Dock="Right"><Button local:AppIcons.Kind="zoom-out" ToolTip="Zoom out" AutomationProperties.Name="Zoom out"  Click="ZoomOutClicked" Padding="10,2"/><TextBlock x:Name="ZoomLabel" Text="100%" Width="48" TextAlignment="Center"/><Button local:AppIcons.Kind="zoom-in" ToolTip="Zoom in" AutomationProperties.Name="Zoom in"  Click="ZoomInClicked" Padding="10,2"/><Button Content="Fit timeline" ToolTip="Fit timeline" AutomationProperties.Name="Fit timeline"  Click="FitClicked" Padding="12,2"/></StackPanel></DockPanel>
-   <StackPanel x:Name="DuckControls" Grid.Row="1" Orientation="Horizontal" Margin="18,0"/><Grid Grid.Row="2"><Grid.ColumnDefinitions><ColumnDefinition Width="220"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions><Grid Grid.Column="0"><Grid.RowDefinitions><RowDefinition Height="30"/><RowDefinition Height="*"/></Grid.RowDefinitions><TextBlock Text="TRACK / LEVEL" FontSize="10" Foreground="#79879C" Margin="18,0"/><ScrollViewer x:Name="TrackScroll" Grid.Row="1" VerticalScrollBarVisibility="Hidden" HorizontalScrollBarVisibility="Disabled" CanContentScroll="False"><StackPanel x:Name="TrackHeaders"/></ScrollViewer></Grid><ScrollViewer x:Name="TimelineScroll" Grid.Column="1" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto" CanContentScroll="False" ScrollChanged="TimelineScrolled" PreviewMouseWheel="TimelineWheel"><local:TimelineSurface x:Name="Timeline"/></ScrollViewer></Grid>
+   <StackPanel x:Name="DuckControls" Grid.Row="1" Orientation="Horizontal" Margin="18,0"/>
+   <Grid Grid.Row="2">
+    <Grid.ColumnDefinitions><ColumnDefinition Width="220"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+    <ScrollViewer x:Name="TrackScroll" Height="{Binding ViewportHeight, ElementName=TimelineScroll}" VerticalAlignment="Top" VerticalScrollBarVisibility="Hidden" HorizontalScrollBarVisibility="Disabled" CanContentScroll="False" Padding="0" PreviewMouseWheel="TrackHeadersWheel">
+     <StackPanel>
+      <Border Height="{x:Static local:TimelineSurface.RulerHeight}" Background="#141A25" BorderBrush="#293344" BorderThickness="0,0,0,1"><TextBlock Text="TRACK / LEVEL" FontSize="10" Foreground="#79879C" Margin="18,0"/></Border>
+      <StackPanel x:Name="TrackHeaders"/>
+     </StackPanel>
+    </ScrollViewer>
+    <ScrollViewer x:Name="TimelineScroll" Grid.Column="1" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto" CanContentScroll="False" Padding="0" ScrollChanged="TimelineScrolled" PreviewMouseWheel="TimelineWheel">
+     <local:TimelineSurface x:Name="Timeline" HorizontalAlignment="Left" VerticalAlignment="Top"/>
+    </ScrollViewer>
+   </Grid>
   </Grid></Border>
   <DockPanel x:Name="Footer" Grid.Row="4" Margin="18,0" LastChildFill="True"><TextBlock Text="Space  Play/pause     ← / →  10 sec     Home  Start     F11  Fullscreen" Foreground="#79879C" FontSize="11" DockPanel.Dock="Right"/><TextBlock x:Name="StatusText" Text="Ready · Import files to get started" Foreground="#98A6BC" FontSize="11" TextTrimming="CharacterEllipsis"/></DockPanel>
  </Grid>

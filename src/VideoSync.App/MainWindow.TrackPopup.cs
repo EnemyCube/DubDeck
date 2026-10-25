@@ -24,7 +24,12 @@ public partial class MainWindow
     private void TrackPopupOpened(object sender,EventArgs e)
     {
         var popup=(Popup)sender;
-        if(popup.Child is Border border) border.Width=Math.Min(720,Math.Max(320,VideoOverlay.ActualWidth-48));
+        if(popup.Child is Border border)
+        {
+            border.Width=Math.Min(720,Math.Max(320,VideoOverlay.ActualWidth-48));
+            var bar=_videoVisible ? FullVideoControls : FullEmptyControls;
+            popup.HorizontalOffset=Math.Max(24,bar.ActualWidth-border.Width-24);
+        }
         FullTrackScroll.MaxHeight=EmptyTrackScroll.MaxHeight=Math.Max(120,Math.Min(340,VideoOverlay.ActualHeight-(_videoVisible ? FullVideoControls.ActualHeight : FullEmptyControls.ActualHeight)-200));
         TouchOsd();
         popup.Child?.Focus();

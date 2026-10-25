@@ -6,7 +6,7 @@ using VideoSync.Core;
 
 namespace VideoSync.App;
 
-public sealed class TimelineSurface : FrameworkElement
+public sealed partial class TimelineSurface : FrameworkElement
 {
     public const double RulerHeight = 30;
     public const double TrackHeight = 70;
@@ -104,7 +104,7 @@ public sealed class TimelineSurface : FrameworkElement
     }
     private void DrawScene(DrawingContext dc)
     {
-        VisibleClipCount = RulerLabelCount = 0;
+        VisibleClipCount = RulerLabelCount = VisibleWaveformColumns = 0;
         dc.DrawRectangle(BackgroundBrush, null, new Rect(0, 0, ActualWidth, ActualHeight));
         var pen = new Pen(Brush("#293344"), 1);
         double visibleLeft = _viewport.Left, visibleRight = _viewport.Right;
@@ -136,6 +136,7 @@ public sealed class TimelineSurface : FrameworkElement
             var border = new Pen(selected ? Brush("#F1FCF8") : _offline.Contains(asset.Id) ? Brush("#C97582") : asset.HasVideo ? Brush("#5DADDF") : Brush("#6CE5C0"), selected ? 2 : 1);
             dc.DrawRoundedRectangle(fill, border, rect, 5, 5);
             dc.PushClip(new RectangleGeometry(rect));
+            DrawWaveform(dc, asset, rect);
             Text(dc, (_offline.Contains(asset.Id) ? "OFFLINE · " : "") + asset.Name, rect.X + 10, rect.Y + 9, 12, Brushes.White, Math.Max(0, rect.Width - 18));
             Text(dc, Format(asset.DurationMs, false), rect.X + 10, rect.Y + 30, 10, MutedBrush, Math.Max(0, rect.Width - 18));
             dc.Pop();

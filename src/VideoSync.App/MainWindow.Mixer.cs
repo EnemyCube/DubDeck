@@ -18,9 +18,9 @@ public partial class MainWindow
     private FrameworkElement CreateTrackControls(TimelineTrack track, bool fullscreen)
     {
         if (fullscreen) return CreateOsdTrack(track);
-        var grid = new Grid { Height = TimelineSurface.TrackHeight, Width = fullscreen ? 280 : double.NaN, Margin = new Thickness(12, 0, 10, 0) };
+        var grid = new Grid { Height = TimelineSurface.TrackHeight - 15, Width = double.NaN, Margin = new Thickness(12, 0, 10, 0) };
         grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(27) });
-        grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(35) });
+        grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(28) });
         var title = new TextBlock { Text = track.Name, FontWeight = FontWeights.SemiBold, FontSize = 12, TextTrimming = TextTrimming.CharacterEllipsis, ToolTip = track.Kind == TrackKind.Video ? "Original movie audio" : track.Name };
         title.MaxWidth = fullscreen ? 140 : 100;
         var heading = new DockPanel { LastChildFill = true };
@@ -44,7 +44,9 @@ public partial class MainWindow
         slider.ValueChanged += (_, args) => { if (_updating) return; track.Volume = (int)Math.Round(args.NewValue); SyncTrackControls(track); TrackLevelChanged(); };
         row.Children.Add(mute); row.Children.Add(slider); row.Children.Add(value); grid.Children.Add(row);
         SyncTrackControls(track);
-        return new Border { Child = grid, BorderBrush = ColorBrush("#293344"), BorderThickness = new Thickness(0, 0, 0, 1) };
+        return new Border { Height = TimelineSurface.TrackHeight, Child = grid, Padding = new Thickness(0, 7, 0, 7),
+            Background = ColorBrush(_project.Tracks.IndexOf(track) % 2 == 0 ? "#141A25" : "#18202D"),
+            BorderBrush = ColorBrush("#293344"), BorderThickness = new Thickness(0, 0, 0, 1) };
     }
 
     private void SyncTrackControls(TimelineTrack track)

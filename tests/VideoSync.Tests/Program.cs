@@ -3,6 +3,9 @@ using VideoSync.Core;
 
 var tests = new (string Name, Action Run)[]
 {
+    ("Waveform peaks preserve silence, timing, and both signed PCM channels", WaveformPeaks),
+    ("Waveform range queries retain brief transients at every zoom", WaveformRanges),
+    ("Waveform memory stays bounded for very long sources", WaveformBounds),
     ("Saved playhead round-trips, clamps, and defaults for older projects", PlayheadPersistence),
     ("New projects enable ducking with Audio 1 as the default Voice source", DefaultDucking),
     ("Voice ducking smooths, holds, and releases", Ducking),
@@ -405,6 +408,43 @@ static void PlayheadPersistence()
     project.PlayheadMs=-1; Throws<InvalidDataException>(()=>ProjectStore.Save(project,path));
     json["playheadMs"]=-1; File.WriteAllText(path,json.ToJsonString());
     Throws<InvalidDataException>(()=>ProjectStore.Load(path));
+}
+static void WaveformPeaks()
+{
+    var builder = new AudioWaveformBuilder(100);
+    builder.AddSamples(new short[] { 0, 0, -32768, 1000, 2000, -2000 }, 100, 2, 0);
+    builder.AddSamples(new short[] { 16384, -1000 }, 100, 2, 70);
+    var wave = builder.Build();
+    Equal(0d, wave.PeakBetween(0, 10));
+    Equal(1d, wave.PeakBetween(10, 20));
+    Equal(2000 / 32768d, wave.PeakBetween(20, 30));
+    Equal(0d, wave.PeakBetween(30, 70));
+    Equal(.5d, wave.PeakBetween(70, 80));
+    Equal(0d, wave.PeakBetween(80, 100));
+}
+
+static void WaveformRanges()
+{
+    var peaks = new ushort[] { 0, 1000, 5000, 0, 16000, 200, 32768, 0, 800 };
+    var wave = new AudioWaveform(90, 10, peaks);
+    for (int start = 0; start < peaks.Length; start++)
+        for (int end = start + 1; end <= peaks.Length; end++)
+            Equal(peaks.Skip(start).Take(end - start).Max() / 32768d, wave.PeakBetween(start * 10, end * 10));
+    peaks[6] = 0; // The envelope must not retain mutable caller storage.
+    Equal(1d, wave.PeakBetween(-100, 1000));
+    Equal(0d, wave.PeakBetween(-100, 0));
+    Equal(0d, wave.PeakBetween(90, 100));
+}
+
+static void WaveformBounds()
+{
+    var wave = new AudioWaveformBuilder(1000L * 60 * 60 * 1000).Build();
+    True(wave.BinCount <= AudioWaveform.MaximumBins, "Long-file waveform allocation is unbounded.");
+    Equal(0d, wave.PeakBetween(0, wave.DurationMs));
+    bool rejected = false;
+    try { _ = new AudioWaveform(10, 10, new ushort[] { 40000 }); }
+    catch (ArgumentException) { rejected = true; }
+    True(rejected, "Malformed cached waveform peaks were accepted.");
 }
 sealed class TestFiles : IDisposable
 {

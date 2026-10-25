@@ -15,6 +15,7 @@ public partial class MainWindow : Window
 {
     private readonly MediaEngine _engine;
     private readonly PlaybackController _playback;
+    private readonly WaveformService _waveforms;
     private ProjectDocument _project = new();
     private string? _projectPath;
     private bool _dirty, _updating, _seekDragging, _closing, _full, _importing;
@@ -35,6 +36,7 @@ public partial class MainWindow : Window
         InitializeComponent();
         _startupPath = startupPath;
         _engine = new MediaEngine();
+        _waveforms = new WaveformService(_engine.LibVLC);
         _playback = new PlaybackController(_engine, enableDiagnostics: App.SmokeTestDirectory is not null || App.PerformanceTestDirectory is not null, simulateVideoStartupStall: App.SimulateVideoStartupStall);
         VideoHost.MediaPlayer = _playback.VideoPlayer;
         _playback.StatusChanged += status => { if (!_closing) Volatile.Write(ref _latestStatus, status); };
@@ -53,7 +55,7 @@ public partial class MainWindow : Window
         delete.Click += (_, _) => Run(DeleteSelectedAsync);
         context.Items.Add(locate); context.Items.Add(new Separator()); context.Items.Add(delete);
         Timeline.ContextMenu = context;
-        TrackScroll.PreviewMouseWheel += (_, e) => { TimelineScroll.ScrollToVerticalOffset(TimelineScroll.VerticalOffset - e.Delta / 3d); e.Handled = true; };
+
         foreach (var bar in new[] { SeekBar, FullSeekBar, EmptySeekBar })
             bar.AddHandler(Thumb.DragCompletedEvent, new DragCompletedEventHandler((_, _) => { _seekDragging = false; QueueSeek((long)bar.Value); }));
         UpdateProjectUI();
@@ -93,8 +95,10 @@ public partial class MainWindow : Window
         ApplyTrackPositions();
         _updating = true;
         Timeline.SetProject(_project, refreshSources);
+        TrackHeaders.MinHeight = Math.Max(2, _project.Tracks.Count) * TimelineSurface.TrackHeight;
         Timeline.SetViewport(new Rect(TimelineScroll.HorizontalOffset, TimelineScroll.VerticalOffset, Math.Max(1, TimelineScroll.ViewportWidth), Math.Max(1, TimelineScroll.ViewportHeight)));
         _hasOfflineSources = Timeline.OfflineAssetIds.Count > 0;
+        RequestWaveforms(refreshSources);
         string headerSignature = System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(_project) + ":" + string.Join("|", _project.Tracks.Select(t => t.Id + ":" + t.Name));
         if (_trackHeaderSignature != headerSignature)
         {
@@ -373,7 +377,25 @@ public partial class MainWindow : Window
         ZoomLabel.Text = Math.Round(Timeline.Scale / 50 * 100) + "%"; TimelineScroll.ScrollToHorizontalOffset(0);
     }
     private void TimelineScrolled(object sender, ScrollChangedEventArgs e) { TrackScroll.ScrollToVerticalOffset(e.VerticalOffset); Timeline.SetViewport(new Rect(e.HorizontalOffset, e.VerticalOffset, Math.Max(1, e.ViewportWidth), Math.Max(1, e.ViewportHeight))); }
-    private void TimelineWheel(object sender, MouseWheelEventArgs e) { if ((Keyboard.Modifiers & ModifierKeys.Control) != 0) { Zoom(e.Delta > 0 ? 1.2 : 1 / 1.2); e.Handled = true; } }
+    private void TimelineWheel(object sender, MouseWheelEventArgs e)
+    {
+        ScrollTimelineWheel(e.Delta, Keyboard.Modifiers);
+        e.Handled = true;
+    }
+    private void TrackHeadersWheel(object sender, MouseWheelEventArgs e)
+    {
+        ScrollTimelineWheel(e.Delta, Keyboard.Modifiers, overTrackHeaders: true);
+        e.Handled = true;
+    }
+    private void ScrollTimelineWheel(int delta, ModifierKeys modifiers, bool overTrackHeaders = false)
+    {
+        if (delta == 0) return;
+        if ((modifiers & ModifierKeys.Control) != 0) Zoom(delta > 0 ? 1.2 : 1 / 1.2);
+        else if (overTrackHeaders || (modifiers & ModifierKeys.Shift) != 0)
+            TimelineScroll.ScrollToVerticalOffset(TimelineScroll.VerticalOffset - delta / 3d);
+        else
+            TimelineScroll.ScrollToHorizontalOffset(TimelineScroll.HorizontalOffset - delta / 3d);
+    }
     private bool ConfirmDiscard(bool allowBusy = false)
     {
         if (!allowBusy && (_importing || _editLock.CurrentCount == 0)) { StatusText.Text = "Wait for the current timeline operation to finish."; return false; }
@@ -484,8 +506,11 @@ public partial class MainWindow : Window
     private async Task CleanupPlaybackAsync()
     {
         // Keep WPF and the HWND alive while native Stop sends its window messages.
+        _waveformCancellation.Cancel();
+        var waveformCleanup = _waveforms.DisposeAsync().AsTask();
         await _playback.StopForShutdownAsync();
         VideoHost.MediaPlayer = null;
+        await waveformCleanup;
         await Task.Run(() => { _playback.Dispose(); _engine.Dispose(); });
     }
     private static Brush ColorBrush(string color) => new SolidColorBrush((Color)ColorConverter.ConvertFromString(color));
