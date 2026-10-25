@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <title>DubDeck</title>
+  <desc>Two stacked playback decks with a play cue and audio waveform.</desc>
+  <rect x="8" y="8" width="240" height="240" rx="52" fill="#141c2b"/>
+  <rect x="44" y="47" width="168" height="73" rx="18" fill="#1b2d40" stroke="#5daddf" stroke-width="8"/>
+  <path d="M71 66v35l31-17.5Z" fill="#8debcf"/>
+  <path d="M124 76h58 M124 93h39" fill="none" stroke="#93b8d6" stroke-width="6" stroke-linecap="round"/>
+  <rect x="44" y="136" width="168" height="73" rx="18" fill="#19382f" stroke="#6ce5c0" stroke-width="8"/>
+  <path d="M70 168v9 M86 159v27 M102 150v45 M118 160v25 M134 167v11" fill="none" stroke="#8debcf" stroke-width="7" stroke-linecap="round"/>
+  <path d="M159 165h24 M159 182h15" fill="none" stroke="#5daddf" stroke-width="6" stroke-linecap="round"/>
+</svg>

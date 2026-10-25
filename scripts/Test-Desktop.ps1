@@ -1,8 +1,8 @@
 param([int]$Runs = 3, [string]$ApplicationPath)
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
-[xml]$project = Get-Content -LiteralPath (Join-Path $root "src\VideoSync.App\VideoSync.App.csproj")
-$app = if ($ApplicationPath) { [IO.Path]::GetFullPath($ApplicationPath) } else { Join-Path $root ("artifacts\VideoSync-" + $project.Project.PropertyGroup.Version + "\VideoSync.exe") }
+[xml]$project = Get-Content -LiteralPath (Join-Path $root "src\DubDeck.App\DubDeck.App.csproj")
+$app = if ($ApplicationPath) { [IO.Path]::GetFullPath($ApplicationPath) } else { Join-Path $root ("artifacts\DubDeck-" + $project.Project.PropertyGroup.Version + "\DubDeck.exe") }
 $fixtures = Join-Path $root 'artifacts\media-fixtures'
 if (!(Test-Path -LiteralPath $app)) { throw 'Build the application with scripts/Build.ps1 -Publish first.' }
 if (!(Test-Path -LiteralPath (Join-Path $fixtures 'pulse-10min.mp4'))) { & (Join-Path $PSScriptRoot 'Generate-Fixtures.ps1') -IncludeSoak }

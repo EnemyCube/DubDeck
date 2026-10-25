@@ -40,7 +40,7 @@ if ($IncludeSoak) {
 
 
 # Subtitle regression material: black picture with embedded and sidecar SRT cues.
-$subtitleText = "1`r`n00:00:00,000 --> 00:00:07,900`r`nVIDEO SYNC SUBTITLE TEST`r`n"
+$subtitleText = "1`r`n00:00:00,000 --> 00:00:07,900`r`nDUBDECK SUBTITLE TEST`r`n"
 [IO.File]::WriteAllText((Join-Path $destination 'subtitle-sidecar.srt'), $subtitleText, [Text.UTF8Encoding]::new($false))
 [IO.File]::WriteAllText((Join-Path $destination 'subtitle-embedded.en.srt'), $subtitleText, [Text.UTF8Encoding]::new($false))
 Invoke-Encode 'subtitle-sidecar.mp4' @('-f','lavfi','-i','color=c=black:size=640x360:rate=25','-f','lavfi','-i','sine=frequency=440:sample_rate=48000','-t','8','-c:v','libx264','-preset','ultrafast','-pix_fmt','yuv420p','-c:a','aac','-movflags','+faststart')

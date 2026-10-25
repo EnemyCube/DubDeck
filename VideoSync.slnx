@@ -1,6 +1,0 @@
-<Solution>
- <Project Path="src/VideoSync.Core/VideoSync.Core.csproj" />
- <Project Path="src/VideoSync.App/VideoSync.App.csproj" />
- <Project Path="tests/VideoSync.Tests/VideoSync.Tests.csproj" />
- <Project Path="tests/VideoSync.MediaTests/VideoSync.MediaTests.csproj" />
-</Solution>

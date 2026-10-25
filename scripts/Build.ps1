@@ -19,40 +19,40 @@ $env:DOTNET_CLI_TELEMETRY_OPTOUT = '1'
 $env:DOTNET_NOLOGO = '1'
 Push-Location $projectRoot
 try {
-    & $taskDotnet restore VideoSync.slnx --disable-parallel
+    & $taskDotnet restore DubDeck.slnx --disable-parallel
     if ($LASTEXITCODE -ne 0) { throw 'Restore failed.' }
-    & $taskDotnet build VideoSync.slnx --no-restore -c $Configuration
+    & $taskDotnet build DubDeck.slnx --no-restore -c $Configuration
     if ($LASTEXITCODE -ne 0) { throw 'Build failed.' }
-    & $taskDotnet run --project tests/VideoSync.Tests --no-build -c $Configuration
+    & $taskDotnet run --project tests/DubDeck.Tests --no-build -c $Configuration
     if ($LASTEXITCODE -ne 0) { throw 'Core tests failed.' }
     if ($MediaTests -or $Soak) {
         & (Join-Path $PSScriptRoot 'Generate-Fixtures.ps1') -IncludeSoak:$Soak
-        $testCache = Join-Path $projectRoot ('tests\VideoSync.MediaTests\bin\' + $Configuration + '\net10.0-windows\win-x64\libvlc\win-x64\plugins\plugins.dat')
+        $testCache = Join-Path $projectRoot ('tests\DubDeck.MediaTests\bin\' + $Configuration + '\net10.0-windows\win-x64\libvlc\win-x64\plugins\plugins.dat')
         if (!(Test-Path -LiteralPath $testCache)) {
-            & $taskDotnet run --project tests/VideoSync.MediaTests --no-build -c $Configuration -- --initialize-vlc-cache
+            & $taskDotnet run --project tests/DubDeck.MediaTests --no-build -c $Configuration -- --initialize-vlc-cache
             if ($LASTEXITCODE -ne 0) { throw 'Media test cache setup failed.' }
         }
-        $mediaArgs = @('run','--project','tests/VideoSync.MediaTests','--no-build','-c',$Configuration,'--','--fixtures',(Join-Path $projectRoot 'artifacts\media-fixtures'))
+        $mediaArgs = @('run','--project','tests/DubDeck.MediaTests','--no-build','-c',$Configuration,'--','--fixtures',(Join-Path $projectRoot 'artifacts\media-fixtures'))
         if ($Soak) { $mediaArgs += '--soak' }
         & $taskDotnet @mediaArgs
         if ($LASTEXITCODE -ne 0) { throw 'Media tests failed.' }
     }
     if ($Publish -or $Portable) {
-        [xml]$applicationProject = Get-Content -LiteralPath (Join-Path $projectRoot "src\VideoSync.App\VideoSync.App.csproj")
-        $releaseName = "VideoSync-" + $applicationProject.Project.PropertyGroup.Version
+        [xml]$applicationProject = Get-Content -LiteralPath (Join-Path $projectRoot "src\DubDeck.App\DubDeck.App.csproj")
+        $releaseName = "DubDeck-" + $applicationProject.Project.PropertyGroup.Version
         if ($Portable) {
             $releaseName += '-Portable'
-            & $taskDotnet publish src/VideoSync.App -c $Configuration -p:PublishProfile=Portable ("-p:PublishDir=../../artifacts/" + $releaseName + "/")
+            & $taskDotnet publish src/DubDeck.App -c $Configuration -p:PublishProfile=Portable ("-p:PublishDir=../../artifacts/" + $releaseName + "/")
         }
         else {
-            & $taskDotnet publish src/VideoSync.App -c $Configuration -r win-x64 --self-contained true -p:PublishSingleFile=false ("-p:PublishDir=../../artifacts/" + $releaseName + "/")
+            & $taskDotnet publish src/DubDeck.App -c $Configuration -r win-x64 --self-contained true -p:PublishSingleFile=false ("-p:PublishDir=../../artifacts/" + $releaseName + "/")
         }
         if ($LASTEXITCODE -ne 0) { throw 'Publish failed.' }
         $publishFolder = Join-Path $projectRoot ("artifacts\" + $releaseName)
         if ($Portable) {
             $publishedFiles = @(Get-ChildItem -LiteralPath $publishFolder -Force)
-            if ($publishedFiles.Count -ne 1 -or $publishedFiles[0].Name -ne 'VideoSync.exe') {
-                throw 'Portable publish must contain only VideoSync.exe. Use a clean portable output directory.'
+            if ($publishedFiles.Count -ne 1 -or $publishedFiles[0].Name -ne 'DubDeck.exe') {
+                throw 'Portable publish must contain only DubDeck.exe. Use a clean portable output directory.'
             }
         }
         else {
@@ -62,10 +62,10 @@ try {
             New-Item -ItemType Directory -Force -Path $licenseDestination | Out-Null
             Get-ChildItem -LiteralPath (Join-Path $projectRoot 'licenses') -File | Copy-Item -Destination $licenseDestination -Force
         }
-        $cacheProcess = Start-Process -FilePath (Join-Path $publishFolder 'VideoSync.exe') -ArgumentList '--initialize-vlc-cache' -WindowStyle Hidden -PassThru -Wait
+        $cacheProcess = Start-Process -FilePath (Join-Path $publishFolder 'DubDeck.exe') -ArgumentList '--initialize-vlc-cache' -WindowStyle Hidden -PassThru -Wait
         if ($cacheProcess.ExitCode -ne 0) { throw 'VLC cache initialization failed.' }
-        if ($Portable) { Write-Output ('Portable size: ' + [math]::Round((Get-Item -LiteralPath (Join-Path $publishFolder 'VideoSync.exe')).Length / 1MB, 1) + ' MiB') }
-        Write-Output ('Ready: ' + (Join-Path $publishFolder 'VideoSync.exe'))
+        if ($Portable) { Write-Output ('Portable size: ' + [math]::Round((Get-Item -LiteralPath (Join-Path $publishFolder 'DubDeck.exe')).Length / 1MB, 1) + ' MiB') }
+        Write-Output ('Ready: ' + (Join-Path $publishFolder 'DubDeck.exe'))
     }
 }
 finally { Pop-Location }

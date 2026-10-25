@@ -1,0 +1,6 @@
+<Solution>
+ <Project Path="src/DubDeck.Core/DubDeck.Core.csproj" />
+ <Project Path="src/DubDeck.App/DubDeck.App.csproj" />
+ <Project Path="tests/DubDeck.Tests/DubDeck.Tests.csproj" />
+ <Project Path="tests/DubDeck.MediaTests/DubDeck.MediaTests.csproj" />
+</Solution>
