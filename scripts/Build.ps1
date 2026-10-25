@@ -40,7 +40,9 @@ try {
     if ($Publish -or $Portable) {
         [xml]$applicationProject = Get-Content -LiteralPath (Join-Path $projectRoot "src\DubDeck.App\DubDeck.App.csproj")
         $releaseName = "DubDeck-" + $applicationProject.Project.PropertyGroup.Version
+        $applicationFileName = 'DubDeck.exe'
         if ($Portable) {
+            $applicationFileName = $releaseName + '-win.x64-portable.exe'
             $releaseName += '-Portable'
             & $taskDotnet publish src/DubDeck.App -c $Configuration -p:PublishProfile=Portable ("-p:PublishDir=../../artifacts/" + $releaseName + "/")
         }
@@ -51,9 +53,13 @@ try {
         $publishFolder = Join-Path $projectRoot ("artifacts\" + $releaseName)
         if ($Portable) {
             $publishedFiles = @(Get-ChildItem -LiteralPath $publishFolder -Force)
-            if ($publishedFiles.Count -ne 1 -or $publishedFiles[0].Name -ne 'DubDeck.exe') {
-                throw 'Portable publish must contain only DubDeck.exe. Use a clean portable output directory.'
+            $rawExecutable = Join-Path $publishFolder 'DubDeck.exe'
+            $unexpectedFiles = @($publishedFiles | Where-Object { $_.PSIsContainer -or $_.Name -notin @('DubDeck.exe', $applicationFileName) })
+            if ($unexpectedFiles.Count -ne 0 -or !(Test-Path -LiteralPath $rawExecutable -PathType Leaf)) {
+                throw 'Unexpected portable output. Use a clean portable output directory.'
             }
+            # Label the distributable without changing the application's assembly name.
+            Move-Item -LiteralPath $rawExecutable -Destination (Join-Path $publishFolder $applicationFileName) -Force
         }
         else {
             Copy-Item -LiteralPath (Join-Path $projectRoot 'README.md') -Destination (Join-Path $publishFolder 'README.md')
@@ -66,10 +72,11 @@ try {
             New-Item -ItemType Directory -Force -Path $licenseDestination | Out-Null
             Get-ChildItem -LiteralPath (Join-Path $projectRoot 'licenses') -File | Copy-Item -Destination $licenseDestination -Force
         }
-        $cacheProcess = Start-Process -FilePath (Join-Path $publishFolder 'DubDeck.exe') -ArgumentList '--initialize-vlc-cache' -WindowStyle Hidden -PassThru -Wait
+        $applicationPath = Join-Path $publishFolder $applicationFileName
+        $cacheProcess = Start-Process -FilePath $applicationPath -ArgumentList '--initialize-vlc-cache' -WindowStyle Hidden -PassThru -Wait
         if ($cacheProcess.ExitCode -ne 0) { throw 'VLC cache initialization failed.' }
-        if ($Portable) { Write-Output ('Portable size: ' + [math]::Round((Get-Item -LiteralPath (Join-Path $publishFolder 'DubDeck.exe')).Length / 1MB, 1) + ' MiB') }
-        Write-Output ('Ready: ' + (Join-Path $publishFolder 'DubDeck.exe'))
+        if ($Portable) { Write-Output ('Portable size: ' + [math]::Round((Get-Item -LiteralPath $applicationPath).Length / 1MB, 1) + ' MiB') }
+        Write-Output ('Ready: ' + $applicationPath)
     }
 }
 finally { Pop-Location }
