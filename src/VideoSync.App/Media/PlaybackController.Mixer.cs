@@ -6,6 +6,38 @@ namespace VideoSync.App.Media;
 public sealed partial class PlaybackController
 {
     private readonly Dictionary<string, long> _pausedTracks = [];
+    private readonly Dictionary<string, long> _trackDelays = [];
+    private readonly Dictionary<string, long> _committedShifts = [];
+    private long _alignmentGeneration;
+    private TrackAlignment _alignment = new(null, 0, new Dictionary<string,long>());
+    public TrackAlignment Alignment => Volatile.Read(ref _alignment);
+    public sealed record TrackAlignment(ProjectDocument? Document, long Generation, IReadOnlyDictionary<string,long> Shifts);
+
+    private long LiveDelay(string id, long position) => _pausedTracks.TryGetValue(id, out var frozen)
+        ? Math.Max(0, position - frozen) : _trackDelays.GetValueOrDefault(id);
+
+    private void PublishAlignment(long position)
+    {
+        var shifts = _committedShifts.Keys.Concat(_trackDelays.Keys).Concat(_pausedTracks.Keys).Distinct()
+            .ToDictionary(id => id, id => _committedShifts.GetValueOrDefault(id) + LiveDelay(id, position));
+        Volatile.Write(ref _alignment, new TrackAlignment(_document, _alignmentGeneration, shifts));
+    }
+    private void CommitTrackPositions(long position)
+    {
+        var shifts = _project.Tracks.Keys.ToDictionary(id => id, id => LiveDelay(id, position));
+        if (shifts.Values.Any(value => value != 0))
+        {
+            var clips = _project.Clips.Select(clip => clip with { StartMs = clip.StartMs + shifts.GetValueOrDefault(clip.TrackId) }).ToArray();
+            _project = _project with { Clips = clips, Duration = clips.Select(c => c.StartMs + _project.Assets[c.AssetId].DurationMs).DefaultIfEmpty(0).Max() };
+            foreach (var slot in Slots())
+                if (slot.Clip is not null) slot.Clip = slot.Clip with { StartMs = slot.Clip.StartMs + shifts.GetValueOrDefault(slot.TrackId) };
+            foreach (var id in _trackEnds.Keys.ToArray()) _trackEnds[id] += shifts.GetValueOrDefault(id);
+            foreach (var pair in shifts) _committedShifts[pair.Key] = _committedShifts.GetValueOrDefault(pair.Key) + pair.Value;
+        }
+        _trackDelays.Clear();
+        foreach (var id in _pausedTracks.Keys.ToArray()) _pausedTracks[id] = position;
+    }
+    private Dictionary<string, long> _trackEnds = [];
     private IReadOnlySet<string> _publishedPaused = new HashSet<string>();
     public IReadOnlySet<string> PausedTrackIds => Volatile.Read(ref _publishedPaused);
     private readonly DuckingEnvelope _ducking = new();
@@ -13,12 +45,13 @@ public sealed partial class PlaybackController
     private ProjectDocument? _document;
     public double DuckGain => _ducking.Gain;
 
-    public Task SetTrackPausedAsync(string trackId, bool paused) => Enqueue(async token =>
+    public Task SetTrackPausedAsync(string trackId, bool paused) => Enqueue(_ =>
     {
-        if (!_project.Tracks.ContainsKey(trackId)) return;
+        if (!_project.Tracks.ContainsKey(trackId)) return Task.CompletedTask;
+        long position = CurrentPosition();
         if (paused)
         {
-            _pausedTracks.TryAdd(trackId, CurrentPosition());
+            if (!_pausedTracks.TryAdd(trackId, TrackPosition(trackId, position))) return Task.CompletedTask;
             var slot = Slots().FirstOrDefault(s => s.TrackId == trackId && s.Clip is not null);
             if (slot is not null)
             {
@@ -29,36 +62,33 @@ public sealed partial class PlaybackController
                 else slot.Meter?.SetPaused(true);
             }
         }
-        else if (_pausedTracks.Remove(trackId))
+        else if (_pausedTracks.Remove(trackId, out var frozenPosition))
         {
-            // Only prepare this lane. Other players and the transport clock keep running.
-            var item = ActiveAt(CurrentPosition()).FirstOrDefault(i => i.Track.Id == trackId);
-            var slot = trackId == _video.TrackId || _project.Tracks[trackId].Kind == TrackKind.Video
-                ? _video : _audio.GetValueOrDefault(trackId);
-            if (item is null)
+            // Preserve this lane's local clock. Never seek or pause any other player.
+            _trackDelays[trackId] = Math.Max(0, position - frozenPosition);
+            var slot = Slots().FirstOrDefault(s => s.TrackId == trackId && s.Clip is not null);
+            if (slot is not null && _playing)
             {
-                slot?.Unload();
-                if (slot == _video) SetVideoVisible(false);
-                else if (slot is not null) { slot.Dispose(); _audio.Remove(trackId); }
-            }
-            else
-            {
-                if (slot is null) { slot = new PlayerSlot(this, new MediaPlayer(_engine.LibVLC), false, trackId); _audio.Add(trackId, slot); }
-                if (!MatchesSource(slot, item)) { slot.Unload(); await OpenAsync(slot, item, token).ConfigureAwait(false); }
-                slot.Clip = item.Clip; slot.Asset = item.Asset;
-                await SeekSlotAsync(slot, ExpectedTime(slot, CurrentPosition()), token).ConfigureAwait(false);
-                if (_playing) { slot.Player.SetPause(false); slot.Running = true; slot.ResetSample(slot.Player.Time); }
-                if (slot == _video) SetVideoVisible(true);
+                slot.Player.SetPause(false);
+                slot.Running = true;
+                slot.ResetSample(slot.Player.Time);
             }
         }
         Volatile.Write(ref _publishedPaused, new HashSet<string>(_pausedTracks.Keys));
         SyncMeters(); ApplyVolumes();
+        return Task.CompletedTask;
     });
 
-    private long TrackPosition(string trackId, long position) => _pausedTracks.GetValueOrDefault(trackId, position);
+    private long TrackPosition(string trackId, long position) =>
+        _pausedTracks.GetValueOrDefault(trackId, Math.Max(0, position - _trackDelays.GetValueOrDefault(trackId)));
+
+    private long TransportDuration(long position) => _trackEnds.Select(track => track.Value +
+        (_pausedTracks.TryGetValue(track.Key, out var frozen) && frozen < track.Value
+            ? Math.Max(0, position - frozen) : _trackDelays.GetValueOrDefault(track.Key))).DefaultIfEmpty(0).Max();
     private void ResetTrackPauses()
     {
         _pausedTracks.Clear();
+        _trackDelays.Clear();
         Volatile.Write(ref _publishedPaused, new HashSet<string>());
     }
     private void SyncMeters()
@@ -72,12 +102,12 @@ public sealed partial class PlaybackController
             if (slot.Meter is null)
             {
                 slot.Meter = new AudioActivityMeter(_engine.LibVLC, slot.Asset!.FilePath);
-                slot.MeterTarget = ExpectedTime(slot, TrackPosition(slot.TrackId, CurrentPosition()));
+                slot.MeterTarget = ExpectedTime(slot, CurrentPosition());
                 slot.MeterPending = true;
             }
             if (slot.MeterPending && slot.Meter.IsReady)
             {
-                slot.Meter.Seek(ExpectedTime(slot, TrackPosition(slot.TrackId, CurrentPosition())));
+                slot.Meter.Seek(ExpectedTime(slot, CurrentPosition()));
                 slot.MeterPending = false;
             }
             if (!slot.MeterPending) slot.Meter.SetPaused(!_playing || _pausedTracks.ContainsKey(slot.TrackId));

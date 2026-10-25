@@ -78,7 +78,7 @@ public sealed partial class PlaybackController : IDisposable
         });
     }
 
-    public Task SetProjectAsync(ProjectDocument project, IReadOnlySet<string>? offlineAssetIds = null)
+    public Task SetProjectAsync(ProjectDocument project, IReadOnlySet<string>? offlineAssetIds = null, long? startPositionMs = null)
     {
         var snapshot = ProjectSnapshot.From(project, offlineAssetIds);
         return Enqueue(async token =>
@@ -86,8 +86,13 @@ public sealed partial class PlaybackController : IDisposable
             Freeze();
             _playing = false;
             if (!ReferenceEquals(_document, project)) { ResetTrackPauses(); _ducking.Reset(); _document = project; }
+            _trackDelays.Clear(); _committedShifts.Clear(); _alignmentGeneration++;
+            foreach (var id in _pausedTracks.Keys.ToArray()) _pausedTracks[id] = _basePosition;
             _project = offlineAssetIds is not null ? snapshot : snapshot with { Assets = snapshot.Assets.ToDictionary(p => p.Key, p => p.Value with { Offline = !System.IO.File.Exists(p.Value.FilePath) }) };
-            _basePosition = Math.Clamp(_basePosition, 0, _project.Duration);
+            _trackEnds = _project.Clips.GroupBy(c => c.TrackId).ToDictionary(g => g.Key,
+                g => g.Max(c => c.StartMs + _project.Assets[c.AssetId].DurationMs));
+            if (startPositionMs.HasValue) _basePosition = startPositionMs.Value;
+            _basePosition = Math.Clamp(_basePosition, 0, TransportDuration(_basePosition));
             _error = null;
             var desired = ActiveAt(_basePosition);
             bool reposition = !Matches(_video, desired.FirstOrDefault(item => item.Track.Kind == TrackKind.Video)) ||
@@ -107,7 +112,7 @@ public sealed partial class PlaybackController : IDisposable
             return;
         }
         if (_project.Duration == 0) return;
-        if (_basePosition >= _project.Duration) _basePosition = 0;
+        if (_basePosition >= TransportDuration(_basePosition)) { CommitTrackPositions(_basePosition); ResetTrackPauses(); _basePosition = 0; }
         _playing = true;
         await ReconcileAsync(true, token).ConfigureAwait(false);
     }, true);
@@ -123,6 +128,7 @@ public sealed partial class PlaybackController : IDisposable
     {
         Freeze();
         _playing = false;
+        CommitTrackPositions(_basePosition);
         _basePosition = 0;
         ResetTrackPauses(); _ducking.Reset();
         _error = null;
@@ -136,6 +142,7 @@ public sealed partial class PlaybackController : IDisposable
         {
             if (version != Interlocked.Read(ref _seekVersion)) return;
             Freeze();
+            CommitTrackPositions(_basePosition);
             _basePosition = Math.Clamp(positionMs, 0, _project.Duration);
             foreach (var id in _pausedTracks.Keys.ToArray()) _pausedTracks[id] = _basePosition;
             _error = null;
@@ -236,11 +243,11 @@ public sealed partial class PlaybackController : IDisposable
                 throw new InvalidOperationException($"Playback failed for {slot.Asset?.Name ?? "a media file"}. Check that the file is still available and playable.");
         if (!_playing) return;
         var position = CurrentPosition();
-        if (position >= _project.Duration)
+        if (position >= TransportDuration(position))
         {
             Freeze();
             _playing = false;
-            _basePosition = _project.Duration;
+            _basePosition = TransportDuration(position);
             await ReconcileAsync(false, token).ConfigureAwait(false);
             return;
         }
@@ -315,7 +322,7 @@ public sealed partial class PlaybackController : IDisposable
             await WaitUntilAsync(() => slot.Player.State != VLCState.Buffering,
                 slot, TimeSpan.FromSeconds(8), token, "Media buffering timed out.").ConfigureAwait(false);
             if (reposition)
-                await SeekSlotAsync(slot, ExpectedTime(slot, TrackPosition(slot.TrackId, _basePosition)), token).ConfigureAwait(false);
+                await SeekSlotAsync(slot, ExpectedTime(slot, _basePosition), token).ConfigureAwait(false);
         }
         ApplyVolumes();
         SetVideoVisible(_video.Clip is not null);
@@ -513,8 +520,8 @@ public sealed partial class PlaybackController : IDisposable
         }
     }
 
-    private long CurrentPosition() => Math.Clamp(_basePosition + _clock.ElapsedMilliseconds, 0, _project.Duration);
-    private static long ExpectedTime(PlayerSlot slot, long position) => Math.Clamp(position - slot.Clip!.StartMs, 0, Math.Max(0, slot.Asset!.DurationMs - 1));
+    private long CurrentPosition() { long position = _basePosition + _clock.ElapsedMilliseconds; return Math.Clamp(position, 0, TransportDuration(position)); }
+    private long ExpectedTime(PlayerSlot slot, long position) => Math.Clamp(TrackPosition(slot.TrackId, position) - slot.Clip!.StartMs, 0, Math.Max(0, slot.Asset!.DurationMs - 1));
     private IEnumerable<PlayerSlot> Slots()
     {
         yield return _video;
@@ -549,6 +556,7 @@ public sealed partial class PlaybackController : IDisposable
         _lastPublishStamp = stamp;
         var position = CurrentPosition();
         Interlocked.Exchange(ref _publishedPosition, position);
+        PublishAlignment(position);
         var now = Stopwatch.GetTimestamp();
         if (_enableDiagnostics)
         {
@@ -562,7 +570,7 @@ public sealed partial class PlaybackController : IDisposable
         }).ToArray();
         Volatile.Write(ref _diagnostics, new ReadOnlyCollection<PlaybackDiagnostic>(diagnostics));
         }
-        var status = new PlaybackStatus(position, _project.Duration, _playing, _busy, _error);
+        var status = new PlaybackStatus(position, TransportDuration(position), _playing, _busy, _error);
         if (StatusChanged is { } handlers)
             foreach (Action<PlaybackStatus> handler in handlers.GetInvocationList())
                 try { handler(status); } catch { /* A UI callback must not stop the transport worker. */ }

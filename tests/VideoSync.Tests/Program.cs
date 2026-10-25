@@ -3,6 +3,8 @@ using VideoSync.Core;
 
 var tests = new (string Name, Action Run)[]
 {
+    ("Saved playhead round-trips, clamps, and defaults for older projects", PlayheadPersistence),
+    ("New projects enable ducking with Audio 1 as the default Voice source", DefaultDucking),
     ("Voice ducking smooths, holds, and releases", Ducking),
     ("Ducking preferences save while runtime pause does not", DuckPreferences),
     ("Empty projects have zero duration", EmptyProject),
@@ -367,6 +369,42 @@ static void DuckPreferences()
         if(!loaded.AutoDuckingEnabled||loaded.DuckAmount!=73||!loaded.Tracks[1].IsDuckingSource||loaded.Tracks[1].IsPaused)
             throw new Exception("Ducking settings or runtime pause persistence is incorrect");
     } finally { File.Delete(path); }
+}
+static void DefaultDucking()
+{
+    var project = new ProjectDocument();
+    True(project.AutoDuckingEnabled);
+    var first = project.AddAudioTrack();
+    var second = project.AddAudioTrack();
+    Equal("Audio 1", first.Name); True(first.IsDuckingSource);
+    Equal("Audio 2", second.Name); False(second.IsDuckingSource);
+    False(project.Tracks[0].IsDuckingSource);
+    project.AutoDuckingEnabled = false; first.IsDuckingSource = false;
+    project.AddAudioTrack();
+    False(project.AutoDuckingEnabled); False(first.IsDuckingSource);
+    using var files = new TestFiles();
+    var path = Path.Combine(files.Folder,"Defaults.videosync");
+    ProjectStore.Save(project,path);
+    var loaded = ProjectStore.Load(path);
+    False(loaded.AutoDuckingEnabled); False(loaded.Tracks[1].IsDuckingSource);
+}
+static void PlayheadPersistence()
+{
+    using var files=new TestFiles();
+    var project=Fixture(files.Folder); project.PlayheadMs=750;
+    var path=Path.Combine(files.Folder,"Playhead.videosync");
+    ProjectStore.Save(project,path);
+    Equal(750L,ProjectStore.Load(path).PlayheadMs);
+    var json=JsonNode.Parse(File.ReadAllText(path))!;
+    json.AsObject().Remove("playheadMs"); File.WriteAllText(path,json.ToJsonString());
+    Equal(0L,ProjectStore.Load(path).PlayheadMs);
+    json["playheadMs"]=long.MaxValue; File.WriteAllText(path,json.ToJsonString());
+    Equal(TimelineRules.Duration(project),ProjectStore.Load(path).PlayheadMs);
+    project.PlayheadMs=long.MaxValue; ProjectStore.Save(project,path);
+    Equal(TimelineRules.Duration(project),ProjectStore.Load(path).PlayheadMs);
+    project.PlayheadMs=-1; Throws<InvalidDataException>(()=>ProjectStore.Save(project,path));
+    json["playheadMs"]=-1; File.WriteAllText(path,json.ToJsonString());
+    Throws<InvalidDataException>(()=>ProjectStore.Load(path));
 }
 sealed class TestFiles : IDisposable
 {

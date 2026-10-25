@@ -3,12 +3,33 @@
  xmlns:vlc="clr-namespace:LibVLCSharp.WPF;assembly=LibVLCSharp.WPF" xmlns:local="clr-namespace:VideoSync.App"
  Background="#10141D" Foreground="#EBEFF7" FontFamily="Segoe UI" FontSize="13" Icon="Assets/VideoSync.ico" Title="Video Sync" Width="1280" Height="850" MinWidth="960" MinHeight="650" AllowDrop="True"
  DragOver="FilesDragOver" Drop="FilesDropped" PreviewKeyDown="WindowKeyDown" Closing="WindowClosing" Loaded="WindowLoaded" WindowStartupLocation="CenterScreen">
+ <Window.Resources>
+  <Style x:Key="OsdButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+   <Setter Property="Width" Value="36"/><Setter Property="Height" Value="36"/><Setter Property="Padding" Value="8"/><Setter Property="Margin" Value="4,0"/>
+   <Setter Property="Background" Value="#253244"/><Setter Property="BorderBrush" Value="#35475D"/>
+  </Style>
+  <Style x:Key="IconToggle" TargetType="CheckBox">
+   <Setter Property="Width" Value="32"/><Setter Property="Height" Value="26"/><Setter Property="Foreground" Value="#9FB1C9"/>
+   <Setter Property="VerticalAlignment" Value="Center"/><Setter Property="Cursor" Value="Hand"/>
+   <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="CheckBox">
+    <Border x:Name="ToggleShell" Background="#253245" BorderBrush="#36475C" BorderThickness="1" CornerRadius="6" Padding="3">
+     <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+    </Border>
+    <ControlTemplate.Triggers>
+     <Trigger Property="IsChecked" Value="True"><Setter TargetName="ToggleShell" Property="Background" Value="#20463F"/><Setter TargetName="ToggleShell" Property="BorderBrush" Value="#6CE5C0"/><Setter Property="Foreground" Value="#8DEBCF"/></Trigger>
+     <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="ToggleShell" Property="Opacity" Value=".8"/></Trigger>
+     <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="ToggleShell" Property="BorderBrush" Value="#6CE5C0"/></Trigger>
+     <Trigger Property="IsEnabled" Value="False"><Setter TargetName="ToggleShell" Property="Opacity" Value=".4"/></Trigger>
+    </ControlTemplate.Triggers>
+   </ControlTemplate></Setter.Value></Setter>
+  </Style>
+ </Window.Resources>
  <Grid x:Name="Root">
   <Grid.RowDefinitions><RowDefinition Height="66"/><RowDefinition Height="*" MinHeight="120"/><RowDefinition Height="82"/><RowDefinition Height="316"/><RowDefinition Height="30"/></Grid.RowDefinitions>
   <Border x:Name="Header" Grid.Row="0" Background="{StaticResource Panel}" BorderBrush="#2A3343" BorderThickness="0,0,0,1" Padding="18,0">
    <DockPanel LastChildFill="False">
     <StackPanel Orientation="Horizontal" DockPanel.Dock="Left"><Border Background="#6CE5C0" Width="5" Height="26" CornerRadius="2" Margin="0,0,10,0"/><TextBlock Text="VIDEO SYNC" FontWeight="Bold" FontSize="18"/><TextBlock x:Name="ProjectLabel" Text="Untitled" Foreground="{StaticResource Muted}" Margin="20,0,8,0" MaxWidth="150" TextTrimming="CharacterEllipsis"/></StackPanel>
-    <StackPanel Orientation="Horizontal" DockPanel.Dock="Right"><Button Content="New" Click="NewClicked" ToolTip="New project · Ctrl+N"/><Button Content="Open" Click="OpenClicked" ToolTip="Open project · Ctrl+O"/><Button Content="Save" Click="SaveClicked" ToolTip="Save project · Ctrl+S"/><Button Content="Save as" Click="SaveAsClicked"/><Button x:Name="ImportButton" Content="＋  Import media" Background="#6CE5C0" BorderBrush="#6CE5C0" Foreground="#10251E" FontWeight="SemiBold" Click="ImportClicked" Margin="14,0,0,0"/></StackPanel>
+    <StackPanel Orientation="Horizontal" DockPanel.Dock="Right"><Button local:AppIcons.Kind="file-plus" ToolTip="New project · Ctrl+N" AutomationProperties.Name="New project · Ctrl+N"  Click="NewClicked"/><Button local:AppIcons.Kind="folder-open" ToolTip="Open project · Ctrl+O" AutomationProperties.Name="Open project · Ctrl+O"  Click="OpenClicked"/><Button local:AppIcons.Kind="save" ToolTip="Save project · Ctrl+S" AutomationProperties.Name="Save project · Ctrl+S"  Click="SaveClicked"/><Button local:AppIcons.Kind="save-all" ToolTip="Save as · Ctrl+Shift+S" AutomationProperties.Name="Save as · Ctrl+Shift+S"  Click="SaveAsClicked"/><Button local:AppIcons.Kind="file-input" ToolTip="Import media · Ctrl+I" AutomationProperties.Name="Import media · Ctrl+I"  x:Name="ImportButton" Background="#6CE5C0" BorderBrush="#6CE5C0" Foreground="#10251E" FontWeight="SemiBold" Click="ImportClicked" Margin="14,0,0,0"/></StackPanel>
    </DockPanel>
   </Border>
   <Border x:Name="PreviewBorder" Grid.Row="1" Background="Black" Margin="18,14,18,0" CornerRadius="6" ClipToBounds="True">
@@ -18,25 +39,105 @@
      <Grid x:Name="VideoOverlay" TextElement.Foreground="#EBEFF7" TextElement.FontFamily="Segoe UI" Background="#01000000" MouseLeftButtonDown="PreviewClicked" MouseMove="OverlayMouseMove" PreviewKeyDown="WindowKeyDown">
 <Border x:Name="BlankVideo" Background="Black"/>
 <StackPanel x:Name="EmptyPreview" HorizontalAlignment="Center" VerticalAlignment="Center"><TextBlock Text="▷" FontSize="48" Foreground="#6CE5C0" HorizontalAlignment="Center" Margin="0,0,0,10"/><TextBlock x:Name="PreviewTitle" Text="Your timeline starts here" FontSize="21" FontWeight="SemiBold" HorizontalAlignment="Center"/><TextBlock x:Name="PreviewHint" Text="Import video or audio, or drop files into the window" Foreground="#98A6BC" Margin="0,10,0,0" HorizontalAlignment="Center"/></StackPanel>
-      <Border x:Name="FullVideoControls" Visibility="Collapsed" VerticalAlignment="Bottom" Background="#E6191F2B" Padding="22,15" Margin="20">
-<StackPanel><StackPanel x:Name="FullDuckControls" Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,0,0,8"/><ScrollViewer MaxHeight="180" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Margin="0,0,0,10"><WrapPanel x:Name="FullVideoMixer" HorizontalAlignment="Center"/></ScrollViewer><WrapPanel Orientation="Horizontal" HorizontalAlignment="Center"><Button x:Name="FullPlay" Content="▶  Play" Click="PlayClicked" MinWidth="100"/><Button Content="■  Stop" Click="StopClicked"/><TextBlock x:Name="FullTime" Text="00:00 / 00:00" FontFamily="Consolas" Margin="18,0"/><Button x:Name="FullMute" Content="Master" Click="MasterMuteClicked"/><Slider x:Name="FullVolume" Width="140" Value="100" ValueChanged="MasterVolumeChanged" ToolTip="Master volume"/><Button Content="Subtitles" Click="SubtitlesClicked"/><Button Content="Exit fullscreen  Esc" Click="FullscreenClicked" Margin="18,0,0,0"/></WrapPanel></StackPanel>
+      <Border x:Name="FullVideoControls" Visibility="Collapsed" VerticalAlignment="Bottom" HorizontalAlignment="Stretch" MaxWidth="1120" Margin="32,0,32,28" Padding="24,18" Background="#F2161E2B" BorderBrush="#344255" BorderThickness="1" CornerRadius="16">
+       <Border.Effect><DropShadowEffect BlurRadius="24" ShadowDepth="6" Opacity=".3"/></Border.Effect>
+       <StackPanel>
+        <Grid Margin="0,0,0,14">
+         <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+         <StackPanel VerticalAlignment="Center" Margin="0,0,12,0"><TextBlock Text="VIDEO SYNC" FontSize="10" Foreground="#8194B0"/><TextBlock x:Name="FullTitle" Text="Untitled" FontSize="15" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" Margin="0,3,0,0"/></StackPanel>
+         <StackPanel Grid.Column="1" Orientation="Horizontal">
+          <Button x:Name="FullPlay" Style="{StaticResource OsdButton}" Width="46" Height="46" Background="#6CE5C0" Foreground="#10251E" BorderBrush="#6CE5C0" local:AppIcons.Kind="play" Click="PlayClicked" ToolTip="Play / pause · Space" AutomationProperties.Name="Play or pause"/>
+          <Button Style="{StaticResource OsdButton}" local:AppIcons.Kind="square" Click="StopClicked" ToolTip="Stop and return to start" AutomationProperties.Name="Stop"/>
+          <TextBlock x:Name="FullTime" Text="00:00 / 00:00" FontFamily="Consolas" FontSize="12" Foreground="#C1CEE0" Margin="12,0,18,0"/>
+         </StackPanel>
+         <StackPanel Grid.Column="2" Orientation="Horizontal" HorizontalAlignment="Right">
+          <Button x:Name="FullMute" Style="{StaticResource OsdButton}" Click="MasterMuteClicked" ToolTip="Mute master" AutomationProperties.Name="Mute master"/>
+          <StackPanel VerticalAlignment="Center" Margin="4,0,0,0"><TextBlock Text="MASTER" FontSize="9" Foreground="#8194B0" Margin="3,0,0,0"/><Slider x:Name="FullVolume" Width="105" Value="100" ValueChanged="MasterVolumeChanged" ToolTip="Master volume" AutomationProperties.Name="Master volume"/></StackPanel>
+          <TextBlock x:Name="FullMasterValue" Text="100%" FontSize="11" Width="37" Foreground="#C1CEE0" Margin="6,0,6,0"/>
+          <Button Style="{StaticResource OsdButton}" local:AppIcons.Kind="captions" Click="SubtitlesClicked" ToolTip="Subtitles" AutomationProperties.Name="Subtitles"/>
+          <Button Style="{StaticResource OsdButton}" local:AppIcons.Kind="minimize" Click="FullscreenClicked" ToolTip="Exit fullscreen · Esc" AutomationProperties.Name="Exit fullscreen"/>
+         </StackPanel>
+        </Grid>
+        <Slider x:Name="FullSeekBar" Maximum="1" PreviewMouseLeftButtonDown="SeekStarted" PreviewMouseLeftButtonUp="SeekFinished" ValueChanged="SeekValueChanged" ToolTip="Seek" AutomationProperties.Name="Fullscreen seek" Margin="0,0,0,14"/>
+        <DockPanel LastChildFill="False">
+         <Button x:Name="FullTrackButton" Content="Track controls" Height="34" Padding="14,6" Click="TrackControlsClicked" ToolTip="Track volume, mute, pause, Voice and auto duck" AutomationProperties.Name="Track controls" DockPanel.Dock="Left"/>
+         <TextBlock Text="Space  Play / pause     ← / →  10s" DockPanel.Dock="Right" FontSize="10" Foreground="#8194B0"/>
+        </DockPanel>
+        <Popup x:Name="FullTrackPopup" Placement="Top" PlacementTarget="{Binding ElementName=FullVideoControls}" HorizontalOffset="24" VerticalOffset="-12" AllowsTransparency="True" StaysOpen="False" Opened="TrackPopupOpened" Closed="TrackPopupClosed">
+         <Border Width="720" Padding="20" CornerRadius="14" Background="#FA161E2B" BorderBrush="#43556E" BorderThickness="1" Focusable="True" KeyboardNavigation.TabNavigation="Cycle" PreviewKeyDown="TrackPopupKeyDown" TextElement.Foreground="#EBEFF7" TextElement.FontFamily="Segoe UI">
+          <StackPanel>
+           <DockPanel Margin="4,0,4,14">
+            <Button Content="×" FontSize="18" Width="30" Height="30" Padding="2" DockPanel.Dock="Right" HorizontalAlignment="Right" Click="CloseTrackControlsClicked" ToolTip="Close track controls · Esc" AutomationProperties.Name="Close track controls"/>
+            <StackPanel><TextBlock Text="Track controls" FontSize="17" FontWeight="SemiBold"/><TextBlock Text="Levels, pause and voice triggering" FontSize="11" Foreground="#8194B0" Margin="0,4,0,0"/></StackPanel>
+           </DockPanel>
+           <ScrollViewer x:Name="FullTrackScroll" MaxHeight="340" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"><WrapPanel x:Name="FullVideoMixer" HorizontalAlignment="Center"/></ScrollViewer>
+           <Border BorderBrush="#2D3C50" BorderThickness="0,1,0,0" Margin="0,14,0,0" Padding="6,14,6,0"><StackPanel x:Name="FullDuckControls" Orientation="Horizontal"/></Border>
+          </StackPanel>
+         </Border>
+        </Popup>
+       </StackPanel>
       </Border>
-<Border x:Name="FullEmptyControls" Visibility="Collapsed" VerticalAlignment="Bottom" Background="#E6191F2B" Padding="20" Margin="20">
-<StackPanel><StackPanel x:Name="EmptyDuckControls" Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,0,0,8"/><ScrollViewer MaxHeight="180" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Margin="0,0,0,10"><WrapPanel x:Name="FullEmptyMixer" HorizontalAlignment="Center"/></ScrollViewer><WrapPanel Orientation="Horizontal" HorizontalAlignment="Center"><Button Content="Play / pause" Click="PlayClicked"/><Button Content="Stop" Click="StopClicked"/><Button x:Name="EmptyMute" Content="Master" Click="MasterMuteClicked"/><Slider x:Name="EmptyVolume" Width="140" Value="100" ValueChanged="MasterVolumeChanged" ToolTip="Master volume"/><Button Content="Subtitles" Click="SubtitlesClicked"/><Button Content="Exit fullscreen  Esc" Click="FullscreenClicked"/></WrapPanel></StackPanel>
-    </Border>
+      <Border x:Name="FullEmptyControls" Visibility="Collapsed" VerticalAlignment="Bottom" HorizontalAlignment="Stretch" MaxWidth="1120" Margin="32,0,32,28" Padding="24,18" Background="#F2161E2B" BorderBrush="#344255" BorderThickness="1" CornerRadius="16">
+       <Border.Effect><DropShadowEffect BlurRadius="24" ShadowDepth="6" Opacity=".3"/></Border.Effect>
+       <StackPanel>
+        <Grid Margin="0,0,0,14">
+         <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+         <StackPanel VerticalAlignment="Center" Margin="0,0,12,0"><TextBlock Text="VIDEO SYNC" FontSize="10" Foreground="#8194B0"/><TextBlock x:Name="EmptyTitle" Text="Untitled" FontSize="15" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" Margin="0,3,0,0"/></StackPanel>
+         <StackPanel Grid.Column="1" Orientation="Horizontal">
+          <Button x:Name="EmptyPlay" Style="{StaticResource OsdButton}" Width="46" Height="46" Background="#6CE5C0" Foreground="#10251E" BorderBrush="#6CE5C0" local:AppIcons.Kind="play" Click="PlayClicked" ToolTip="Play / pause · Space" AutomationProperties.Name="Play or pause"/>
+          <Button Style="{StaticResource OsdButton}" local:AppIcons.Kind="square" Click="StopClicked" ToolTip="Stop and return to start" AutomationProperties.Name="Stop"/>
+          <TextBlock x:Name="EmptyTime" Text="00:00 / 00:00" FontFamily="Consolas" FontSize="12" Foreground="#C1CEE0" Margin="12,0,18,0"/>
+         </StackPanel>
+         <StackPanel Grid.Column="2" Orientation="Horizontal" HorizontalAlignment="Right">
+          <Button x:Name="EmptyMute" Style="{StaticResource OsdButton}" Click="MasterMuteClicked" ToolTip="Mute master" AutomationProperties.Name="Mute master"/>
+          <StackPanel VerticalAlignment="Center" Margin="4,0,0,0"><TextBlock Text="MASTER" FontSize="9" Foreground="#8194B0" Margin="3,0,0,0"/><Slider x:Name="EmptyVolume" Width="105" Value="100" ValueChanged="MasterVolumeChanged" ToolTip="Master volume" AutomationProperties.Name="Master volume"/></StackPanel>
+          <TextBlock x:Name="EmptyMasterValue" Text="100%" FontSize="11" Width="37" Foreground="#C1CEE0" Margin="6,0,6,0"/>
+          <Button Style="{StaticResource OsdButton}" local:AppIcons.Kind="captions" Click="SubtitlesClicked" ToolTip="Subtitles" AutomationProperties.Name="Subtitles"/>
+          <Button Style="{StaticResource OsdButton}" local:AppIcons.Kind="minimize" Click="FullscreenClicked" ToolTip="Exit fullscreen · Esc" AutomationProperties.Name="Exit fullscreen"/>
+         </StackPanel>
+        </Grid>
+        <Slider x:Name="EmptySeekBar" Maximum="1" PreviewMouseLeftButtonDown="SeekStarted" PreviewMouseLeftButtonUp="SeekFinished" ValueChanged="SeekValueChanged" ToolTip="Seek" AutomationProperties.Name="Fullscreen seek" Margin="0,0,0,14"/>
+        <DockPanel LastChildFill="False">
+         <Button x:Name="EmptyTrackButton" Content="Track controls" Height="34" Padding="14,6" Click="TrackControlsClicked" ToolTip="Track volume, mute, pause, Voice and auto duck" AutomationProperties.Name="Track controls" DockPanel.Dock="Left"/>
+         <TextBlock Text="Space  Play / pause     ← / →  10s" DockPanel.Dock="Right" FontSize="10" Foreground="#8194B0"/>
+        </DockPanel>
+        <Popup x:Name="EmptyTrackPopup" Placement="Top" PlacementTarget="{Binding ElementName=FullEmptyControls}" HorizontalOffset="24" VerticalOffset="-12" AllowsTransparency="True" StaysOpen="False" Opened="TrackPopupOpened" Closed="TrackPopupClosed">
+         <Border Width="720" Padding="20" CornerRadius="14" Background="#FA161E2B" BorderBrush="#43556E" BorderThickness="1" Focusable="True" KeyboardNavigation.TabNavigation="Cycle" PreviewKeyDown="TrackPopupKeyDown" TextElement.Foreground="#EBEFF7" TextElement.FontFamily="Segoe UI">
+          <StackPanel>
+           <DockPanel Margin="4,0,4,14">
+            <Button Content="×" FontSize="18" Width="30" Height="30" Padding="2" DockPanel.Dock="Right" HorizontalAlignment="Right" Click="CloseTrackControlsClicked" ToolTip="Close track controls · Esc" AutomationProperties.Name="Close track controls"/>
+            <StackPanel><TextBlock Text="Track controls" FontSize="17" FontWeight="SemiBold"/><TextBlock Text="Levels, pause and voice triggering" FontSize="11" Foreground="#8194B0" Margin="0,4,0,0"/></StackPanel>
+           </DockPanel>
+           <ScrollViewer x:Name="EmptyTrackScroll" MaxHeight="340" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"><WrapPanel x:Name="FullEmptyMixer" HorizontalAlignment="Center"/></ScrollViewer>
+           <Border BorderBrush="#2D3C50" BorderThickness="0,1,0,0" Margin="0,14,0,0" Padding="6,14,6,0"><StackPanel x:Name="EmptyDuckControls" Orientation="Horizontal"/></Border>
+          </StackPanel>
+         </Border>
+        </Popup>
+       </StackPanel>
+      </Border>
+      <Grid x:Name="ImportOverlay" Visibility="Collapsed" Panel.ZIndex="100" Background="#F010141D" Cursor="Wait" AutomationProperties.Name="Import in progress">
+       <Viewbox HorizontalAlignment="Center" VerticalAlignment="Center" Margin="10" Stretch="Uniform" StretchDirection="DownOnly"><Border Width="480" Padding="16" Background="#202938" BorderBrush="#6CE5C0" BorderThickness="1" CornerRadius="10">
+        <StackPanel>
+         <TextBlock x:Name="ImportHeading" Text="Loading files…" Foreground="#EBEFF7" FontSize="20" FontWeight="SemiBold" AutomationProperties.LiveSetting="Polite"/>
+         <TextBlock x:Name="ImportDetail" Text="Preparing import…" Foreground="#C6D2E5" FontSize="13" Margin="0,6,0,0" TextTrimming="CharacterEllipsis" AutomationProperties.LiveSetting="Polite"/>
+         <ProgressBar Height="6" IsIndeterminate="True" Foreground="#6CE5C0" Background="#354158" BorderThickness="0" Margin="0,12,0,12" AutomationProperties.Name="Loading media"/>
+         <TextBlock Text="Please wait. You can import more files when this finishes." FontSize="12" Foreground="#98A6BC"/>
+        </StackPanel>
+       </Border></Viewbox>
+      </Grid>
      </Grid>
     </vlc:VideoView>
     
    </Grid>
   </Border>
   <Grid x:Name="Transport" Grid.Row="2" Margin="18,8,18,6"><Grid.RowDefinitions><RowDefinition Height="38"/><RowDefinition Height="26"/></Grid.RowDefinitions>
-   <DockPanel LastChildFill="False"><StackPanel Orientation="Horizontal" DockPanel.Dock="Left"><Button x:Name="PlayButton" Content="▶  Play" Click="PlayClicked" Background="#6CE5C0" Foreground="#10251E" BorderBrush="#6CE5C0" MinWidth="105" FontWeight="SemiBold"/><Button Content="■  Stop" Click="StopClicked"/><TextBlock x:Name="TimeLabel" Text="00:00.000 / 00:00.000" FontFamily="Consolas" FontSize="14" Margin="18,0"/></StackPanel><StackPanel Orientation="Horizontal" DockPanel.Dock="Right"><Button x:Name="MasterMute" Content="Master" Click="MasterMuteClicked" ToolTip="Mute master output"/><Slider x:Name="MasterVolume" Width="130" Value="100" Margin="6,0" ValueChanged="MasterVolumeChanged" ToolTip="Master volume"/><TextBlock x:Name="MasterValue" Text="100%" Width="38"/><Button Content="CC" Click="SubtitlesClicked" ToolTip="Subtitles" AutomationProperties.Name="Subtitles"/><Button Content="⛶  Fullscreen" Click="FullscreenClicked" Margin="12,0,0,0" ToolTip="Fullscreen preview · F11"/></StackPanel></DockPanel>
+   <DockPanel LastChildFill="False"><StackPanel Orientation="Horizontal" DockPanel.Dock="Left"><Button local:AppIcons.Kind="play" ToolTip="Play / pause · Space" AutomationProperties.Name="Play / pause · Space"  x:Name="PlayButton" Click="PlayClicked" Background="#6CE5C0" Foreground="#10251E" BorderBrush="#6CE5C0" FontWeight="SemiBold"/><Button local:AppIcons.Kind="square" ToolTip="Stop and return to start" AutomationProperties.Name="Stop and return to start"  Click="StopClicked"/><TextBlock x:Name="TimeLabel" Text="00:00.000 / 00:00.000" FontFamily="Consolas" FontSize="14" Margin="18,0"/></StackPanel><StackPanel Orientation="Horizontal" DockPanel.Dock="Right"><Button x:Name="MasterMute" Content="Master" Click="MasterMuteClicked" ToolTip="Mute master output"/><Slider x:Name="MasterVolume" Width="130" Value="100" Margin="6,0" ValueChanged="MasterVolumeChanged" ToolTip="Master volume"/><TextBlock x:Name="MasterValue" Text="100%" Width="38"/><Button local:AppIcons.Kind="captions" ToolTip="Subtitles" AutomationProperties.Name="Subtitles"  x:Name="SubtitlesButton" Click="SubtitlesClicked" Padding="10,7"/><Button local:AppIcons.Kind="maximize" ToolTip="Toggle fullscreen · F11 / Escape" AutomationProperties.Name="Toggle fullscreen · F11 / Escape"  Click="FullscreenClicked" Margin="12,0,0,0"/></StackPanel></DockPanel>
    <Slider x:Name="SeekBar" Grid.Row="1" Maximum="1" Margin="2,0" PreviewMouseLeftButtonDown="SeekStarted" PreviewMouseLeftButtonUp="SeekFinished" ValueChanged="SeekValueChanged" ToolTip="Seek"/>
   </Grid>
   <Border x:Name="TimelinePanel" Grid.Row="3" Background="{StaticResource Panel}" BorderBrush="#2A3343" BorderThickness="0,1,0,1"><Grid><Grid.RowDefinitions><RowDefinition Height="40"/><RowDefinition Height="32"/><RowDefinition Height="*"/></Grid.RowDefinitions>
-   <DockPanel Margin="18,0" LastChildFill="False"><StackPanel Orientation="Horizontal" DockPanel.Dock="Left"><TextBlock Text="TIMELINE" FontWeight="SemiBold" Foreground="#98A6BC" FontSize="11"/><TextBlock Text="Whole files · drag to position" Foreground="#79879C" Margin="18,0,0,0"/><Button Content="Add audio track" Click="AddTrackClicked" Padding="10,3" Margin="18,0,0,0"/></StackPanel><StackPanel Orientation="Horizontal" DockPanel.Dock="Right"><Button Content="−" Click="ZoomOutClicked" Padding="10,2"/><TextBlock x:Name="ZoomLabel" Text="100%" Width="48" TextAlignment="Center"/><Button Content="＋" Click="ZoomInClicked" Padding="10,2"/><Button Content="Fit" Click="FitClicked" Padding="12,2"/></StackPanel></DockPanel>
+   <DockPanel Margin="18,0" LastChildFill="False"><StackPanel Orientation="Horizontal" DockPanel.Dock="Left"><TextBlock Text="TIMELINE" FontWeight="SemiBold" Foreground="#98A6BC" FontSize="11"/><TextBlock Text="Whole files · drag to position" Foreground="#79879C" Margin="18,0,0,0"/></StackPanel><StackPanel Orientation="Horizontal" DockPanel.Dock="Right"><Button local:AppIcons.Kind="zoom-out" ToolTip="Zoom out" AutomationProperties.Name="Zoom out"  Click="ZoomOutClicked" Padding="10,2"/><TextBlock x:Name="ZoomLabel" Text="100%" Width="48" TextAlignment="Center"/><Button local:AppIcons.Kind="zoom-in" ToolTip="Zoom in" AutomationProperties.Name="Zoom in"  Click="ZoomInClicked" Padding="10,2"/><Button Content="Fit timeline" ToolTip="Fit timeline" AutomationProperties.Name="Fit timeline"  Click="FitClicked" Padding="12,2"/></StackPanel></DockPanel>
    <StackPanel x:Name="DuckControls" Grid.Row="1" Orientation="Horizontal" Margin="18,0"/><Grid Grid.Row="2"><Grid.ColumnDefinitions><ColumnDefinition Width="220"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions><Grid Grid.Column="0"><Grid.RowDefinitions><RowDefinition Height="30"/><RowDefinition Height="*"/></Grid.RowDefinitions><TextBlock Text="TRACK / LEVEL" FontSize="10" Foreground="#79879C" Margin="18,0"/><ScrollViewer x:Name="TrackScroll" Grid.Row="1" VerticalScrollBarVisibility="Hidden" HorizontalScrollBarVisibility="Disabled" CanContentScroll="False"><StackPanel x:Name="TrackHeaders"/></ScrollViewer></Grid><ScrollViewer x:Name="TimelineScroll" Grid.Column="1" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto" CanContentScroll="False" ScrollChanged="TimelineScrolled" PreviewMouseWheel="TimelineWheel"><local:TimelineSurface x:Name="Timeline"/></ScrollViewer></Grid>
   </Grid></Border>
-  <DockPanel x:Name="Footer" Grid.Row="4" Margin="18,0" LastChildFill="True"><TextBlock Text="Space  Play/pause     Home  Start     F11  Fullscreen" Foreground="#79879C" FontSize="11" DockPanel.Dock="Right"/><TextBlock x:Name="StatusText" Text="Ready · Import files to get started" Foreground="#98A6BC" FontSize="11" TextTrimming="CharacterEllipsis"/></DockPanel>
+  <DockPanel x:Name="Footer" Grid.Row="4" Margin="18,0" LastChildFill="True"><TextBlock Text="Space  Play/pause     ← / →  10 sec     Home  Start     F11  Fullscreen" Foreground="#79879C" FontSize="11" DockPanel.Dock="Right"/><TextBlock x:Name="StatusText" Text="Ready · Import files to get started" Foreground="#98A6BC" FontSize="11" TextTrimming="CharacterEllipsis"/></DockPanel>
  </Grid>
 </Window>

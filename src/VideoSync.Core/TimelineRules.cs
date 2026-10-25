@@ -84,6 +84,7 @@ public static class TimelineRules
         ArgumentNullException.ThrowIfNull(project);
         if (project.Version != 1) throw new InvalidDataException($"Project version {project.Version} is unsupported. This application supports version 1.");
         if (string.IsNullOrWhiteSpace(project.Name)) throw new InvalidDataException("The project must have a name.");
+        if (project.PlayheadMs < 0) throw new InvalidDataException("Playhead position must not be negative.");
         if (project.DuckAmount is < 0 or > 100) throw new InvalidDataException("Duck amount must be between 0 and 100.");
         if (project.MasterVolume is < 0 or > 100) throw new InvalidDataException("Master volume must be between 0 and 100.");
         if (project.Assets is null || project.Tracks is null || project.Clips is null)

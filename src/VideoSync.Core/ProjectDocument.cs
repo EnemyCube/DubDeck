@@ -50,13 +50,23 @@ public sealed class ProjectDocument
 {
     public int Version { get; set; } = 1;
     public string Name { get; set; } = "Untitled";
+    public long PlayheadMs { get; set; }
     public int MasterVolume { get; set; } = 100;
     public bool MasterMuted { get; set; }
-    public bool AutoDuckingEnabled { get; set; }
+    public bool AutoDuckingEnabled { get; set; } = true;
     public int DuckAmount { get; set; } = 60;
     public List<MediaAsset> Assets { get; set; } = [];
     public List<TimelineTrack> Tracks { get; set; } =
         [new TimelineTrack { Id = "video", Name = "Video", Kind = TrackKind.Video }];
     public List<TimelineClip> Clips { get; set; } = [];
+
+    public TimelineTrack AddAudioTrack()
+    {
+        int existing = Tracks.Count(track => track.Kind == TrackKind.Audio);
+        var track = new TimelineTrack { Name = "Audio " + (existing + 1), Kind = TrackKind.Audio,
+            IsDuckingSource = existing == 0 };
+        Tracks.Add(track);
+        return track;
+    }
 }
 

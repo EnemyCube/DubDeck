@@ -261,36 +261,70 @@ internal sealed class MediaSuite
                 _videoSink.MeasureSubtitlePixels = false;
             });
 
-            await Check("Track pause freezes one lane and resumes in sync, including boundaries", async () =>
+            await Check("Track pause resumes its frozen position without interrupting other lanes", async () =>
             {
                 var project = MakeSmokeProject();
+                project.Clips.RemoveAll(c => c.Id == "audio-second");
                 await _controller.SetProjectAsync(project);
                 await _controller.SeekAsync(700);
                 await _controller.PlayPauseAsync();
                 await Task.Delay(350);
-                await _controller.SetTrackPausedAsync("video", true);
-                var frozen = _controller.Diagnostics.Single(d => d.IsVideo).NativeMediaTimeMs;
+                await _controller.SetTrackPausedAsync("audio-one", true);
+                var frozen = _controller.Diagnostics.Single(d => d.TrackId == "audio-one").NativeMediaTimeMs;
+                var expectedFrozen = _controller.Diagnostics.Single(d => d.TrackId == "audio-one").ExpectedMediaTimeMs;
                 long before = _controller.PositionMs;
-                await Task.Delay(1000);
-                Require(_controller.PositionMs > before + 750, "Other lanes or transport stopped during track pause");
-                Require(Math.Abs(_controller.Diagnostics.Single(d => d.IsVideo).NativeMediaTimeMs-frozen)<350, "Paused video kept advancing");
-                Require(_controller.Diagnostics.Any(d => !d.IsVideo && d.State == "Playing"), "External audio stopped");
-                await _controller.SetTrackPausedAsync("video",false);
-                await Task.Delay(350);
-                var video = _controller.Diagnostics.Single(d=>d.IsVideo);
-                Require(Math.Abs(video.EstimatedMediaTimeMs-video.ExpectedMediaTimeMs)<500, "Resumed video did not catch up to timeline");
-                await _controller.SetTrackPausedAsync("audio-one",true);
-                await Task.Delay(350);
-                Require(_controller.Diagnostics.Single(d=>d.TrackId=="audio-one").State=="Paused", "Audio track did not pause independently");
+                await Task.Delay(1100);
+                Require(_controller.PositionMs > before + 850, "Transport stopped during individual pause");
+                Require(Math.Abs(_controller.Diagnostics.Single(d=>d.TrackId=="audio-one").NativeMediaTimeMs-frozen)<100,"Paused audio advanced");
+                Require(_controller.Diagnostics.Single(d=>d.IsVideo).State=="Playing","Video stopped during audio pause");
                 await _controller.SetTrackPausedAsync("audio-one",false);
+                var resumed = _controller.Diagnostics.Single(d=>d.TrackId=="audio-one");
+                Require(Math.Abs(resumed.NativeMediaTimeMs-frozen)<150,"Resume sought past the paused cue");
+                await Task.Delay(800);
+                resumed = _controller.Diagnostics.Single(d=>d.TrackId=="audio-one");
+                Require(resumed.NativeMediaTimeMs>frozen+400,"Resumed audio failed to advance");
+                Require(resumed.ExpectedMediaTimeMs < resumed.TimelinePositionMs-900,"Track delay was lost");
+                Require(Math.Abs(resumed.ExpectedMediaTimeMs-expectedFrozen-800)<250,"Track clock did not resume from its frozen position");
+                await _controller.PauseAsync();
+                await Task.Delay(150);
+                await _controller.PlayPauseAsync();
+                await Task.Delay(500);
+                resumed = _controller.Diagnostics.Single(d=>d.TrackId=="audio-one");
+                Require(resumed.ExpectedMediaTimeMs < resumed.TimelinePositionMs-900,"Global pause erased the track delay");
+                // A second pause accumulates delay, rather than resetting the first offset.
+                await _controller.SetTrackPausedAsync("audio-one",true);
+                await Task.Delay(450);
+                await _controller.SetTrackPausedAsync("audio-one",false);
+                resumed = _controller.Diagnostics.Single(d=>d.TrackId=="audio-one");
+                Require(resumed.ExpectedMediaTimeMs < resumed.TimelinePositionMs-1300,"Repeated pause did not accumulate its delay");
                 await _controller.SeekAsync(3700);
+                Require(Math.Abs(_controller.Diagnostics.Single(d=>d.TrackId=="audio-one").ExpectedMediaTimeMs-(3700-_controller.Alignment.Shifts["audio-one"]))<150,"Seek lost the committed timeline alignment");
                 await _controller.SetTrackPausedAsync("video",true);
-                await Until(()=>_controller.PositionMs>4300,TimeSpan.FromSeconds(3));
-                Require(_controller.Diagnostics.Any(d=>d.IsVideo),"Paused picture disappeared at clip boundary");
+                var videoFrozen = _controller.Diagnostics.Single(d=>d.IsVideo).NativeMediaTimeMs;
+                await Until(()=>_controller.PositionMs>4350,TimeSpan.FromSeconds(3));
                 await _controller.SetTrackPausedAsync("video",false);
-                Require(!_controller.Diagnostics.Any(d=>d.IsVideo),"Resume into a gap retained stale video");
+                Require(_controller.Diagnostics.Any(d=>d.IsVideo),"Video resumed into a gap instead of its paused clip");
+                Require(Math.Abs(_controller.Diagnostics.Single(d=>d.IsVideo).NativeMediaTimeMs-videoFrozen)<150,"Video resume skipped the paused frame");
+                await Until(()=>!_controller.Diagnostics.Any(d=>d.IsVideo),TimeSpan.FromSeconds(3),"Delayed video did not reach its own gap");
                 await _controller.StopAsync();
-                Require(_controller.PausedTrackIds.Count==0,"Stop did not clear independent pauses");
+                Require(_controller.PausedTrackIds.Count==0,"Stop did not clear track pauses");
+
+                var audio=_assets["audio.wav"];
+                var tail=new ProjectDocument { MasterMuted=true, Assets=[audio],
+                    Tracks=[new(){Id="video",Kind=TrackKind.Video},new(){Id="tail",Kind=TrackKind.Audio}],
+                    Clips=[new(){AssetId=audio.Id,TrackId="tail"}] };
+                await _controller.SetProjectAsync(tail);
+                await _controller.SeekAsync(7000);
+                await _controller.PlayPauseAsync();
+                await _controller.SetTrackPausedAsync("tail",true);
+                await Task.Delay(1450);
+                Require(_controller.IsPlaying && _controller.PositionMs>audio.DurationMs,"Transport cut off the paused track at the original project end");
+                await _controller.SetTrackPausedAsync("tail",false);
+                Require(_status!.DurationMs>audio.DurationMs+1200,"Delayed audio tail did not extend playback duration");
+                await Until(()=>!_controller.IsPlaying,TimeSpan.FromSeconds(4),"Delayed track did not finish at its adjusted end");
+                long shiftedDuration = _status!.DurationMs;
+                await _controller.StopAsync();
+                Require(_status!.DurationMs==shiftedDuration && _controller.Alignment.Shifts["tail"]>=1200,"Stop discarded committed track placement");
             });
             await Check("Voice activity ducks beds, restores silence, and respects mute and amount", async () =>
             {
@@ -334,7 +368,7 @@ internal sealed class MediaSuite
                 project.AutoDuckingEnabled=true; await _controller.UpdateVolumeAsync(project);
                 await _controller.PauseAsync();
                 await _controller.PlayPauseAsync();
-                await _controller.SeekAsync(500);
+                await _controller.SeekAsync(500 + _controller.Alignment.Shifts.GetValueOrDefault("voice"));
                 await Until(()=>_controller.Diagnostics.Any(d=>d.TrackId=="bed"&&d.Volume<=22),TimeSpan.FromSeconds(2),"Cold-start pause left voice analysis stuck");
                 project.AutoDuckingEnabled=false; await _controller.UpdateVolumeAsync(project);
                 await Task.Delay(600);

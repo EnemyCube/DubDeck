@@ -7,3 +7,7 @@ Video Sync dynamically links these unmodified components:
 - Microsoft .NET 10 Windows Desktop runtime — Microsoft and contributors, MIT and component-specific notices. See licenses/DOTNET-LICENSE.txt and licenses/DOTNET-ThirdPartyNotices.txt distributed alongside the application.
 
 The LGPL text is included in licenses/LGPL-2.1.txt. The bundled native libraries and plugins remain separate files and may be replaced with compatible builds. Refer to the upstream repositories for corresponding component sources and notices.
+
+- Captions icon: Lucide Icons and Contributors, ISC License. Downloaded from https://github.com/lucide-icons/lucide/blob/5d36179bf459e730c4580c5101b85addb64dc19f/icons/captions.svg and converted to a WPF vector drawing. Original SVG: src/VideoSync.App/Assets/captions-lucide.svg. License: licenses/LUCIDE-LICENSE.txt. Icon page: https://lucide.dev/icons/captions.
+
+Additional button icons use Lucide SVGs pinned at 7faf87628a1ad6175975bc595344337ce14a7db4 (https://github.com/lucide-icons/lucide/tree/7faf87628a1ad6175975bc595344337ce14a7db4/icons). Sources are bundled in Assets/Icons as WPF resources. The same licenses/LUCIDE-LICENSE.txt applies.

@@ -38,6 +38,7 @@ public static class ProjectStore
         {
             Version = stored.Version,
             Name = stored.Name ?? "",
+            PlayheadMs = stored.PlayheadMs,
             MasterVolume = stored.MasterVolume,
             MasterMuted = stored.MasterMuted,
             AutoDuckingEnabled = stored.AutoDuckingEnabled,
@@ -64,6 +65,7 @@ public static class ProjectStore
             });
         }
         TimelineRules.Validate(project);
+        project.PlayheadMs = Math.Clamp(project.PlayheadMs, 0, TimelineRules.Duration(project));
         return project;
     }
 
@@ -76,6 +78,7 @@ public static class ProjectStore
         {
             Version = project.Version,
             Name = project.Name,
+            PlayheadMs = Math.Clamp(project.PlayheadMs, 0, TimelineRules.Duration(project)),
             MasterVolume = project.MasterVolume,
             MasterMuted = project.MasterMuted,
             AutoDuckingEnabled = project.AutoDuckingEnabled,
@@ -157,6 +160,7 @@ public static class ProjectStore
         public StoredProject() { }
         public int Version { get; set; }
         public string? Name { get; set; }
+        public long PlayheadMs { get; set; }
         public int MasterVolume { get; set; } = 100;
         public bool MasterMuted { get; set; }
         public bool AutoDuckingEnabled { get; set; }
