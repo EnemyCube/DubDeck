@@ -7,8 +7,9 @@ public partial class MainWindow
 {
     private void SetImportBusy(bool busy,int count=0)
     {
-        if(busy) CloseTrackControls();
+        if(busy) CloseFloatingControls();
         _importing=busy;
+        UpdateEmptyTimeline();
         ImportButton.IsEnabled=!busy && !_closing;
         foreach(var panel in new FrameworkElement[]{Header,Transport,TimelinePanel})
         {

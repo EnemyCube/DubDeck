@@ -12,6 +12,7 @@ public partial class MainWindow
         if(!_full || _importing) return;
         var popup=ReferenceEquals(sender,FullTrackButton) ? FullTrackPopup : EmptyTrackPopup;
         bool open=!popup.IsOpen;
+        CloseSubtitleMenu(); CloseStopConfirmation();
         CloseTrackControls();
         if(open) { popup.PlacementTarget=_videoVisible ? FullVideoControls : FullEmptyControls; popup.HorizontalOffset=24; popup.IsOpen=true; }
         TouchOsd();

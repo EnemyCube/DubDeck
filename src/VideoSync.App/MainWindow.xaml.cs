@@ -116,6 +116,7 @@ public partial class MainWindow : Window
         SetMuteLabels();
         SyncDuckingControls();
         SeekBar.Maximum = Math.Max(1, TimelineRules.Duration(_project));
+        UpdateEmptyTimeline();
         PreviewTitle.Text = _project.Clips.Count == 0 ? "Your timeline starts here" : "No video at this position";
         PreviewHint.Text = _project.Clips.Count == 0 ? "Import video or audio, or drop files into the window" : "Audio continues across video gaps";
         ZoomLabel.Text = Math.Round(Timeline.Scale / 50 * 100) + "%";
@@ -289,7 +290,7 @@ public partial class MainWindow : Window
         });
     }
     private async void PlayClicked(object sender, RoutedEventArgs e) => await SafeAsync(() => _playback.PlayPauseAsync());
-    private async void StopClicked(object sender, RoutedEventArgs e) => await SafeAsync(async () => { CancelPendingSeek(); await _playback.StopAsync(); ApplyTrackPositions(); });
+
     private long? _pendingSeek;
     private void CancelPendingSeek() { _seekCts?.Cancel(); _pendingSeek = null; }
     private void JumpBy(long milliseconds) => QueueSeek((_pendingSeek ?? _playback.PositionMs) + milliseconds);
@@ -323,7 +324,7 @@ public partial class MainWindow : Window
     private void FullscreenClicked(object sender, RoutedEventArgs e) => ToggleFullscreen();
     private void ToggleFullscreen()
     {
-        CloseTrackControls();
+        CloseFloatingControls();
         _full = !_full;
         TouchOsd();
         if (_full)
@@ -351,6 +352,8 @@ public partial class MainWindow : Window
     {
         TouchOsd();
         bool ctrl = (Keyboard.Modifiers & ModifierKeys.Control) != 0;
+        if(e.Key==Key.Escape && StopConfirmationPopup.IsOpen) { CloseStopConfirmation(); e.Handled=true; return; }
+        if(e.Key==Key.Escape && _subtitleMenuOpen) { CloseSubtitleMenu(); e.Handled=true; return; }
         if(e.Key==Key.Escape && TrackControlsOpen) { CloseTrackControls(); e.Handled=true; return; }
         if (e.Key == Key.F11 || e.Key == Key.Escape && _full) { ToggleFullscreen(); e.Handled = true; return; }
         if (_importing) { if(e.Key!=Key.System) e.Handled=true; return; }
@@ -472,7 +475,7 @@ public partial class MainWindow : Window
         if (_closing) { e.Cancel = !_closeReady; return; }
         e.Cancel = true;
         if (!ConfirmDiscard(allowBusy: true)) return;
-        CloseTrackControls();
+        CloseFloatingControls();
         _closing = true;
         _uiTimer.Stop();
         CancelPendingSeek();

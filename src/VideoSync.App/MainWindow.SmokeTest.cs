@@ -28,6 +28,13 @@ public partial class MainWindow
             Check(Math.Abs(emptyLane.TranslatePoint(new Point(), TimelinePanel).Y -
                 Timeline.TranslatePoint(new Point(0, TimelineSurface.RulerHeight), TimelinePanel).Y) < .5,
                 "The initial single-track workspace reserves the time ruler before the first track controls");
+            Check(EmptyTimelineOverlay.IsVisible, "Empty timelines display the drag-and-drop/import prompt");
+            await ToggleSubtitlesMenuAsync(SubtitlesButton);
+            await Task.Delay(120);
+            Check(_subtitleMenu?.IsOpen == true && _subtitleMenu.Items.Count == 1,
+                "The styled subtitles menu explains when no movie is active");
+            Capture("01-empty-subtitles.png");
+            CloseSubtitleMenu();
             Capture("01-empty.png");
             Check(ActualWidth >= 960 && Timeline.ActualWidth >= 900, "Initial workspace is laid out");
             string fixture = App.FixtureDirectory ?? Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../../artifacts/media-fixtures"));
@@ -44,6 +51,7 @@ public partial class MainWindow
             await importing;
             Check(!_importing && ImportOverlay.Visibility==Visibility.Collapsed && ImportButton.IsEnabled && Header.IsEnabled && TimelinePanel.IsEnabled,
                 "Completing import removes the loading indicator and restores controls");
+            Check(EmptyTimelineOverlay.Visibility == Visibility.Collapsed, "The empty timeline prompt disappears when clips are imported");
             Check(_project.Clips.Count == 4 && _project.Tracks.Count == 3, "Import places sequential video and layered audio");
             Check(_project.Name=="video" && FullTitle.Text=="video" && EmptyTitle.Text=="video" && Title.StartsWith("video"), "The latest imported video names the project without its extension; later audio imports preserve it");
             Check(_project.AutoDuckingEnabled && _project.Tracks.First(t => t.Kind == TrackKind.Audio).IsDuckingSource && !_project.Tracks.Last().IsDuckingSource,
@@ -87,11 +95,45 @@ public partial class MainWindow
             Check(Timeline.VisibleWaveformColumns > 0 && Timeline.VisibleWaveformColumns < 5000,
                 "Faint waveform drawing is bounded to visible clip backgrounds");
             Capture("02-timeline.png");
+            Activate(); // A real click activates the owning window before opening its popup.
+            await System.Windows.Threading.Dispatcher.Yield(System.Windows.Threading.DispatcherPriority.Input);
+            long stopPosition = _playback.PositionMs;
+            StopButton.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Button.ClickEvent));
+            await Task.Delay(120);
+            Check(StopConfirmationPopup.IsOpen && _playback.PositionMs == stopPosition &&
+                System.Windows.Input.Keyboard.FocusedElement == CancelStopButton,
+                $"Stop asks before changing playback, with Cancel focused by default (open={StopConfirmationPopup.IsOpen}, position={_playback.PositionMs}/{stopPosition}, focus={System.Windows.Input.Keyboard.FocusedElement}, active={IsActive})");
+            Capture("02-stop-confirmation.png");
+            var stopEscape = SmokeKey(System.Windows.Input.Key.Escape);
+            StopConfirmationKeyDown(this, stopEscape);
+            Check(!StopConfirmationPopup.IsOpen && _playback.PositionMs == stopPosition && stopEscape.Handled,
+                "Escape dismisses Stop confirmation without rewinding");
+            await _playback.PlayPauseAsync();
+            StopButton.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Button.ClickEvent));
+            await Task.Delay(150);
+            CancelStopButton.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Button.ClickEvent));
+            Check(!StopConfirmationPopup.IsOpen && _playback.IsPlaying && _playback.PositionMs > stopPosition,
+                "Canceling Stop leaves ongoing playback uninterrupted");
+            await _playback.PauseAsync();
+            StopButton.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Button.ClickEvent));
+            await Task.Delay(80);
+            ConfirmStopButton.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Button.ClickEvent));
+            await _playback.GetSubtitlesAsync();
+            Check(!StopConfirmationPopup.IsOpen && _playback.PositionMs == 0 && !_playback.IsPlaying,
+                "Confirming Stop stops playback and returns to the beginning");
+            await _playback.SeekAsync(stopPosition);
             long paused = _playback.PositionMs;
             ToggleFullscreen();
             await Task.Delay(250);
             Check(Header.Visibility == Visibility.Collapsed && FullVideoControls.Visibility == Visibility.Visible, "Fullscreen hides editing panels and exposes transport");
             Check(_playback.PositionMs == paused, "Fullscreen preserves paused position");
+            FullStopButton.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Button.ClickEvent));
+            await Task.Delay(80);
+            Check(StopConfirmationPopup.IsOpen && _playback.PositionMs == paused,
+                "The video fullscreen Stop button also requires confirmation");
+            var fullStopEscape = SmokeKey(System.Windows.Input.Key.Escape);
+            StopConfirmationKeyDown(this, fullStopEscape);
+            Check(_full && !StopConfirmationPopup.IsOpen, "Escape dismisses Stop confirmation while retaining fullscreen");
             Check(TrackButtonBesideSubtitles(FullTrackButton, FullSubtitlesButton), "Video fullscreen places Track controls immediately left of Subtitles");
             ShowStatus(new VideoSync.App.Media.PlaybackStatus(_playback.PositionMs,TimelineRules.Duration(_project),false,false,null));
             double fullscreenTarget=FullSeekBar.Value+300;
@@ -176,6 +218,10 @@ public partial class MainWindow
             await Task.Delay(250);
             Check(!_videoVisible && EmptyPreview.Visibility == Visibility.Collapsed && FullEmptyControls.Visibility == Visibility.Visible, "Video gaps stay black while fullscreen audio controls remain available");
             Check(TrackButtonBesideSubtitles(EmptyTrackButton, EmptySubtitlesButton), "Audio-only fullscreen places Track controls immediately left of Subtitles");
+            EmptyStopButton.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Button.ClickEvent));
+            await Task.Delay(80);
+            Check(StopConfirmationPopup.IsOpen, "Audio-only fullscreen Stop also requires confirmation");
+            CancelStopButton.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Button.ClickEvent));
             Capture("03-fullscreen.png");
             EmptyTrackButton.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Button.ClickEvent));
             await Task.Delay(150);
@@ -196,11 +242,37 @@ public partial class MainWindow
             File.Delete(disposableVideo);
             await NewProjectAsync();
             Check(_project.Clips.Count == 0 && _playback.PositionMs == 0, "New clears the arrangement and resets transport");
+            Check(EmptyTimelineOverlay.Visibility == Visibility.Visible, "The empty timeline prompt returns for a new project");
             await OpenProjectAsync(save);
             Check(_project.Clips.Count == loaded.Clips.Count && Math.Abs(_playback.PositionMs-savedPosition)<100 && !_playback.IsPlaying, "Open restores the saved playhead while keeping playback paused");
             await Task.Delay(150); ApplyTrackPositions();
             Check(_project.Clips.All(c => loaded.Clips.Single(saved => saved.Id == c.Id).StartMs == c.StartMs), "Reopening preserves shifted placements without applying the alignment twice");
             Check(_project.Assets.Any(a => a.FilePath == disposableVideo && a.IsOffline), "Missing sources stay in the project and do not prevent New or Open");
+            await ImportFilesAsync(new[] { Path.Combine(fixture, "subtitle-embedded.mkv") });
+            var captionClip = _project.Clips.Last(c => c.TrackId == "video");
+            await _playback.SeekAsync(captionClip.StartMs + 500);
+            await ToggleSubtitlesMenuAsync(SubtitlesButton);
+            await Task.Delay(150);
+            var subtitleRows = _subtitleMenu!.Items.OfType<System.Windows.Controls.MenuItem>().ToArray();
+            Check(subtitleRows.Any(item => item.Tag is SubtitleMode.Embedded) && subtitleRows.Any(item => item.Tag is SubtitleMode.External) &&
+                ((System.Windows.Controls.Button)_subtitleMenu.Template.FindName("OpenSubtitleFileButton", _subtitleMenu)).IsVisible && subtitleRows.Count(item => item.IsChecked) == 1,
+                "The styled subtitles menu groups embedded/file choices, offers browsing, and marks the current setting");
+            Capture("05-subtitles-menu.png");
+            subtitleRows.First(item => item.Tag is SubtitleMode mode && mode == SubtitleMode.Off)
+                .RaiseEvent(new RoutedEventArgs(System.Windows.Controls.MenuItem.ClickEvent));
+            await _playback.GetSubtitlesAsync();
+            Check(!_subtitleMenuOpen && _project.Assets.Single(a => a.Id == captionClip.AssetId).Subtitles == SubtitleMode.Off,
+                "Choosing a subtitle row applies the setting and dismisses the menu");
+            ToggleFullscreen();
+            await ToggleSubtitlesMenuAsync(FullSubtitlesButton);
+            await Task.Delay(100);
+            Check(_subtitleMenu?.IsOpen == true && FullVideoControls.Opacity == 1,
+                "The styled subtitles menu works over fullscreen video and keeps the OSD visible");
+            var subtitleEscape = SmokeKey(System.Windows.Input.Key.Escape);
+            WindowKeyDown(this, subtitleEscape);
+            Check(_full && !_subtitleMenuOpen && subtitleEscape.Handled,
+                "Escape dismisses subtitles before leaving fullscreen");
+            ToggleFullscreen();
             File.WriteAllText(Path.Combine(directory, "result.json"), JsonSerializer.Serialize(new { success = true, checks, nativeVideoScreenshot = false }, new JsonSerializerOptions { WriteIndented = true }));
             _dirty = false;
             Close();
@@ -214,7 +286,7 @@ public partial class MainWindow
         void Capture(string name)
         {
             UpdateLayout();
-            FrameworkElement target = FullTrackPopup.IsOpen ? (FrameworkElement)FullTrackPopup.Child : EmptyTrackPopup.IsOpen ? (FrameworkElement)EmptyTrackPopup.Child : _full || _importing ? VideoOverlay : this;
+            FrameworkElement target = StopConfirmationPopup.IsOpen ? (FrameworkElement)StopConfirmationPopup.Child : _subtitleMenu?.IsOpen == true ? _subtitleMenu : FullTrackPopup.IsOpen ? (FrameworkElement)FullTrackPopup.Child : EmptyTrackPopup.IsOpen ? (FrameworkElement)EmptyTrackPopup.Child : _full || _importing ? VideoOverlay : this;
             double dpi = VisualTreeHelper.GetDpi(target).DpiScaleX;
             var bitmap = new RenderTargetBitmap((int)Math.Ceiling(target.ActualWidth * dpi), (int)Math.Ceiling(target.ActualHeight * dpi), 96 * dpi, 96 * dpi, PixelFormats.Pbgra32);
             bitmap.Render(target);
@@ -222,6 +294,9 @@ public partial class MainWindow
             using var output = File.Create(Path.Combine(directory, name)); encoder.Save(output);
         }
     }
+    private System.Windows.Input.KeyEventArgs SmokeKey(System.Windows.Input.Key key) =>
+        new(System.Windows.Input.Keyboard.PrimaryDevice, PresentationSource.FromVisual(this), Environment.TickCount, key)
+        { RoutedEvent = System.Windows.Input.Keyboard.PreviewKeyDownEvent };
     private static bool TrackButtonBesideSubtitles(System.Windows.Controls.Button tracks, System.Windows.Controls.Button subtitles)
     {
         if (tracks.Parent is not System.Windows.Controls.StackPanel parent || subtitles.Parent != parent) return false;

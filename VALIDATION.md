@@ -1,38 +1,41 @@
-# Video Sync 1.6.0 validation
+# Video Sync 1.6.1 validation
 
 Validated on Windows 11 x64 on 2026-10-25 (America/Toronto).
-Application folder: artifacts/VideoSync-1.6.0/VideoSync.exe.
+Application folder: artifacts/VideoSync-1.6.1/VideoSync.exe.
 
-Faint peak waveforms appear behind the clip text on each timeline lane, including embedded movie audio. Sound and silence follow source time; moving clips or applying track-pause alignment moves their waveform with them. Timeline gaps remain empty. Source waveforms are independent of mixer volume and mute.
+All workspace and fullscreen Stop buttons open a confirmation before issuing any transport command. Cancel is focused after the popup opens; Escape, Cancel, or an outside click dismisses the question. Playback continues in its existing state until confirmed. Confirming Stop returns the playhead to 00:00.
 
-Generation runs one silent, unpaced VLC PCM decoder at a time on a background worker, using the existing LibVLC instance. Importing and transport do not wait for it. Decoding retains bounded peak bins rather than PCM, and drawing queries only the visible viewport at the current zoom. Source-path/size/modification-time/duration keys identify a per-user disk cache. Missing sources retain their offline appearance, corrupt caches regenerate, and source relinking or opening a different project cancels obsolete work. Shutdown cancels and joins waveform decoding before releasing LibVLC.
+The subtitles menu has rounded dark chrome, a source filename, descriptive rows, grouped embedded/file choices, clear selection and hover indicators, and a pinned Open subtitle file button. The list scrolls independently of the file action. Escape dismisses the menu, and F11 remains available. Subtitles, track controls, and Stop confirmation dismiss each other and stay above native video.
 
-- Release solution build: zero warnings and errors.
-- Core: 20/20 scenarios passed, including stereo signed PCM peaks, silence/timing, transient preservation at different zoom ranges, and bounded allocation for long files.
-- Native playback: 13/13 scenarios passed. New coverage decodes MP4, MOV, MKV, MP3, WAV, M4A, and FLAC waveforms; checks repeated voice/silence cues through the file end, faster-than-realtime extraction, cache reuse/recovery/invalidation, missing/corrupt sources, and cancellation after real PCM delivery. Existing transport, track pause, volume, subtitles, and ducking tests still pass.
-- Published workflow: 61 checks passed, including waveforms on embedded and external audio, visible-background drawing, and existing ruler alignment and project workflows. Normal shutdown took 605 ms.
-- Published performance: 13 checks passed with 10,042 clips, actual video playback, voice analysis, and simulated hardware startup recovery. Drag rendering p95 was 0.177 ms; input callback p95 was 34.25 ms. Normal shutdown took 132 ms, without forced shutdown.
-- Inspected workflow/02-timeline.png: faint waveforms remain behind readable labels, and gated narration shows distinct audible and silent sections.
+The timeline heading/instruction text was removed. Ducking and zoom controls share one compact row. An empty timeline shows a drag-and-drop prompt and Import media button below the ruler; it disappears during import and while clips are present, and returns for a new/emptied arrangement. Existing lane/ruler alignment remains covered.
+
+- Release solution build and application publish: no warnings or errors.
+- Core: 20/20 scenarios passed.
+- Final published workflow: 76 checks passed. Coverage includes empty prompt visibility, paused and playing Stop cancellation, default Cancel focus, confirmed rewind, workspace/video/audio-only Stop buttons, embedded and sidecar subtitle choices, selection application, fullscreen menus, and existing waveform/project/alignment behavior. Normal shutdown took 1,750 ms without forced shutdown.
+- Performance regression: 13 checks passed with more than 10,000 clips, actual playback, voice analysis, hardware startup fallback, dragging, and repeated close requests. Normal shutdown took 105 ms.
+- The final pinned-footer/default-focus adjustments were followed by a new packaged workflow run. The performance scenario was not repeated for those popup-only adjustments.
+- Inspected the empty workspace, Stop confirmation, and final subtitle-menu PNGs. The file action remains visible below the scrollable choices.
 
 Evidence:
-- artifacts/media-test-results/media-20261025-104615.json.
-- artifacts/desktop-tests/20261025-104922/summary.json and workflow/performance folders.
+- artifacts/desktop-tests/20261025-113826/summary.json (final application-folder workflow).
+- artifacts/desktop-tests/20261025-112808/summary.json (initial workflow and performance).
+- workflow/01-empty.png, workflow/02-stop-confirmation.png, and workflow/05-subtitles-menu.png.
 
-Reproduce with scripts/Build.ps1 -Publish -MediaTests, then scripts/Test-Desktop.ps1 -Runs 1.
-For focused decoding checks, run tests/VideoSync.MediaTests with --waveform-only --fixtures artifacts/media-fixtures.
-The ten-minute playback soak was not repeated; previous reports remain available. Prior layout validation is preserved in artifacts/validation-1.5.3.md.
+Rebuild with scripts/Build.ps1 -Publish.
+Repeat the workflow with scripts/Test-Desktop.ps1 -Runs 0; use -Runs 1 to include performance.
+Native media and ten-minute soak suites were not repeated for these UI changes; previous results are preserved in artifacts/validation-1.6.0.md.
 
-Published VideoSync.dll SHA-256: 4A823689FF71A3F92DB14D5CC166D7F85BCFD1A47CD7F1CE512E0F70EC9972E4.
+Published VideoSync.dll SHA-256: 5168DF86568771B5FAB6EA8FFF950357D73B5B77B32D947017DA5986AC998431.
 
 ## Portable edition
 
-Executable: artifacts/VideoSync-1.6.0-Portable/VideoSync.exe.
+Executable: artifacts/VideoSync-1.6.1-Portable/VideoSync.exe.
 
-- The output contains only VideoSync.exe (115136231 bytes).
-- All 61 packaged workflow checks passed, including embedded/external audio waveforms, native video presentation, controls, and project round trips.
-- Shutdown completed normally in 112 ms.
-- Evidence: artifacts/desktop-tests/20261025-105135/summary.json.
+- The output contains only VideoSync.exe (115141085 bytes).
+- All 76 packaged workflow checks passed, including confirmation/default Cancel focus, subtitle grouping and selection, pinned file action, and empty timeline prompt.
+- Shutdown completed normally in 164 ms.
+- Evidence: artifacts/desktop-tests/20261025-114122/summary.json.
 - Rebuild: scripts/Build.ps1 -Portable.
-- Repeat: scripts/Test-Desktop.ps1 -Runs 0 -ApplicationPath artifacts/VideoSync-1.6.0-Portable/VideoSync.exe.
+- Repeat: scripts/Test-Desktop.ps1 -Runs 0 -ApplicationPath artifacts/VideoSync-1.6.1-Portable/VideoSync.exe.
 
-Portable VideoSync.exe SHA-256: 796C1D6587213E4ED29C4B5A09A6FE67ECF51407E1C7FA996DD3BE7B84DF0EEE.
+Portable VideoSync.exe SHA-256: DCED8CFF009B2873A10382F7A97DDA0B60E41DE51BA72D3295B340FB03E31694.

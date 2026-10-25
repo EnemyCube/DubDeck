@@ -129,51 +129,11 @@ public partial class MainWindow
     private void UpdateOsd()
     {
         if (!_full) return;
-        bool keep = !_playback.IsPlaying || FullVideoControls.IsMouseOver || FullEmptyControls.IsMouseOver || _subtitleMenuOpen || _seekDragging || TrackControlsOpen;
+        bool keep = !_playback.IsPlaying || FullVideoControls.IsMouseOver || FullEmptyControls.IsMouseOver || _subtitleMenuOpen || _seekDragging || TrackControlsOpen || StopConfirmationPopup.IsOpen;
         SetOsdVisible(keep || Stopwatch.GetElapsedTime(_lastOsdInteraction).TotalSeconds < 3);
     }
     private void OverlayMouseMove(object sender, MouseEventArgs e) => TouchOsd();
 
-    private async void SubtitlesClicked(object sender, RoutedEventArgs e)
-    {
-        TouchOsd();
-        await SafeAsync(async () =>
-        {
-            var state = await _playback.GetSubtitlesAsync();
-            var menu = new ContextMenu { Background = ColorBrush("#191F2B"), Foreground = Brushes.White, PlacementTarget = (UIElement)sender };
-            _subtitleMenuOpen = true;
-            menu.Closed += (_, _) => { _subtitleMenuOpen = false; TouchOsd(); };
-            if (state.AssetId is null)
-            {
-                menu.Items.Add(new MenuItem { Header = "Play or seek into a movie to choose subtitles", IsEnabled = false });
-            }
-            else
-            {
-                var asset = _project.Assets.First(a => a.Id == state.AssetId);
-                Add("Automatic", SubtitleMode.Auto, -1, null);
-                Add("Off", SubtitleMode.Off, -1, null);
-                menu.Items.Add(new Separator());
-                foreach (var option in state.Options) Add(option.Label, option.Mode, option.EmbeddedIndex, option.FilePath);
-                var browse = new MenuItem { Header = "Open subtitle file…" };
-                browse.Click += async (_, _) =>
-                {
-                    var dialog = new OpenFileDialog { Title = "Choose subtitles for " + asset.Name, Filter = "Subtitle files|*.srt;*.ass;*.ssa;*.vtt;*.sub;*.idx|All files|*.*", CheckFileExists = true };
-                    if (dialog.ShowDialog(this) == true) await SafeAsync(() => ChooseSubtitlesAsync(asset, SubtitleMode.External, -1, dialog.FileName));
-                };
-                menu.Items.Add(new Separator()); menu.Items.Add(browse);
-                if (state.Warning is not null) menu.Items.Add(new MenuItem { Header = state.Warning, IsEnabled = false });
-                void Add(string label, SubtitleMode mode, int index, string? path)
-                {
-                    var item = new MenuItem { Header = label, IsCheckable = true,
-                        IsChecked = asset.Subtitles == mode && (mode != SubtitleMode.Embedded || asset.SubtitleTrackIndex == index) &&
-                            (mode != SubtitleMode.External || string.Equals(asset.SubtitleFilePath, path, StringComparison.OrdinalIgnoreCase)) };
-                    item.Click += (_, _) => Run(() => ChooseSubtitlesAsync(asset, mode, index, path));
-                    menu.Items.Add(item);
-                }
-            }
-            menu.IsOpen = true;
-        });
-    }
     private async Task ChooseSubtitlesAsync(MediaAsset asset, SubtitleMode mode, int index, string? path)
     {
         await _playback.SetSubtitlesAsync(asset.Id, mode, index, path);
