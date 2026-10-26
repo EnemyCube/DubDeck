@@ -378,6 +378,7 @@ static void DefaultDucking()
 {
     var project = new ProjectDocument();
     True(project.AutoDuckingEnabled);
+    Equal(30, project.DuckAmount);
     var first = project.AddAudioTrack();
     var second = project.AddAudioTrack();
     Equal("Audio 1", first.Name); True(first.IsDuckingSource);
@@ -391,6 +392,14 @@ static void DefaultDucking()
     ProjectStore.Save(project,path);
     var loaded = ProjectStore.Load(path);
     False(loaded.AutoDuckingEnabled); False(loaded.Tracks[1].IsDuckingSource);
+    Equal(30, loaded.DuckAmount);
+    var json = JsonNode.Parse(File.ReadAllText(path))!;
+    json["duckAmount"] = 60;
+    File.WriteAllText(path, json.ToJsonString());
+    Equal(60, ProjectStore.Load(path).DuckAmount);
+    json.AsObject().Remove("duckAmount");
+    File.WriteAllText(path, json.ToJsonString());
+    Equal(30, ProjectStore.Load(path).DuckAmount);
 }
 static void PlayheadPersistence()
 {

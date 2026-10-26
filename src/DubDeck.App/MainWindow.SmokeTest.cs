@@ -34,6 +34,8 @@ public partial class MainWindow
             Check(ThemeButton.Content is System.Windows.Controls.Image && AppIcons.GetKind(ThemeButton) == "palette" &&
                 System.Windows.Automation.AutomationProperties.GetName(ThemeButton) == "Choose a color theme",
                 "Theme selection uses an accessible palette icon button");
+            Check(_project.DuckAmount == 30 && _duckControls.All(w => w.Amount.Value == 30 && w.Value.Text == "30%"),
+                "New projects start with 30% ducking in every mixer");
             Check(EmptyTimelineOverlay.IsVisible, "Empty timelines display the drag-and-drop/import prompt");
             await ToggleSubtitlesMenuAsync(SubtitlesButton);
             await Task.Delay(120);
@@ -252,6 +254,7 @@ public partial class MainWindow
             var seekDeadline=System.Diagnostics.Stopwatch.StartNew();
             while((_pendingSeek is not null || Math.Abs(_playback.PositionMs-TimelineRules.Duration(_project))>=150) && seekDeadline.ElapsedMilliseconds<5000) await Task.Delay(50);
             Check(_pendingSeek is null && Math.Abs(_playback.PositionMs-TimelineRules.Duration(_project))<150,$"Repeated forward jumps accumulate and clamp at the timeline end (actual {_playback.PositionMs}, end {TimelineRules.Duration(_project)})");
+            await CheckMediaControlsAsync(Check);
             ToggleFullscreen();
             await _playback.SeekAsync(duration + 1500);
             await Task.Delay(250);
@@ -274,6 +277,10 @@ public partial class MainWindow
             var escape=new System.Windows.Input.KeyEventArgs(System.Windows.Input.Keyboard.PrimaryDevice,PresentationSource.FromVisual(this),Environment.TickCount,System.Windows.Input.Key.Escape) { RoutedEvent=System.Windows.Input.Keyboard.PreviewKeyDownEvent };
             TrackPopupKeyDown(this,escape);
             Check(!TrackControlsOpen && _full && escape.Handled,"Escape dismisses track controls without leaving fullscreen");
+            await ToggleSubtitlesMenuAsync(EmptySubtitlesButton);
+            await Task.Delay(100);
+            await CheckSubtitleButtonToggleAsync(EmptySubtitlesButton, Check, "Audio-only fullscreen");
+            CloseSubtitleMenu();
             ToggleFullscreen();
             await Task.Delay(200);
             Check(Header.Visibility == Visibility.Visible && WindowStyle == WindowStyle.SingleBorderWindow, "Escape-style fullscreen exit restores the workspace");
@@ -303,6 +310,7 @@ public partial class MainWindow
             await _playback.SeekAsync(captionClip.StartMs + 500);
             await ToggleSubtitlesMenuAsync(SubtitlesButton);
             await Task.Delay(150);
+            await CheckSubtitleButtonToggleAsync(SubtitlesButton, Check, "Timeline");
             var subtitleRows = _subtitleMenu!.Items.OfType<System.Windows.Controls.MenuItem>().ToArray();
             Check(subtitleRows.Any(item => item.Tag is SubtitleMode.Embedded) && subtitleRows.Any(item => item.Tag is SubtitleMode.External) &&
                 ((System.Windows.Controls.Button)_subtitleMenu.Template.FindName("OpenSubtitleFileButton", _subtitleMenu)).IsVisible && subtitleRows.Count(item => item.IsChecked) == 1,
@@ -318,6 +326,7 @@ public partial class MainWindow
             await Task.Delay(100);
             Check(_subtitleMenu?.IsOpen == true && FullVideoControls.Opacity == 1,
                 "The styled subtitles menu works over fullscreen video and keeps the OSD visible");
+            await CheckSubtitleButtonToggleAsync(FullSubtitlesButton, Check, "Video fullscreen");
             var subtitleEscape = SmokeKey(System.Windows.Input.Key.Escape);
             WindowKeyDown(this, subtitleEscape);
             Check(_full && !_subtitleMenuOpen && subtitleEscape.Handled,
@@ -344,6 +353,22 @@ public partial class MainWindow
             using var output = File.Create(Path.Combine(directory, name)); encoder.Save(output);
         }
     }
+    private async Task CheckSubtitleButtonToggleAsync(System.Windows.Controls.Button button, Action<bool, string> check, string context)
+    {
+        check(!CloseSubtitleMenuAtButton(button, new Point(-1, -1)) && _subtitleMenu?.IsOpen == true,
+            context + ": mouse-down away from the subtitle button does not trigger its toggle");
+        check(CloseSubtitleMenuAtButton(button, new Point(button.ActualWidth / 2, button.ActualHeight / 2)) &&
+            _subtitleMenu is null && !_subtitleMenuOpen,
+            context + ": pressing the subtitle button closes its open menu before automatic dismissal");
+        await ToggleSubtitlesMenuAsync(button);
+        await System.Windows.Threading.Dispatcher.Yield(System.Windows.Threading.DispatcherPriority.Input);
+        await ToggleSubtitlesMenuAsync(button);
+        check(_subtitleMenu is null && !_subtitleMenuOpen,
+            context + ": keyboard activation also toggles the subtitle menu closed");
+        await ToggleSubtitlesMenuAsync(button);
+        await System.Windows.Threading.Dispatcher.Yield(System.Windows.Threading.DispatcherPriority.Input);
+    }
+
     private static void SmokeMouseDown(UIElement target) =>
         target.RaiseEvent(new System.Windows.Input.MouseButtonEventArgs(System.Windows.Input.Mouse.PrimaryDevice,
             Environment.TickCount, System.Windows.Input.MouseButton.Left) { RoutedEvent = System.Windows.Input.Mouse.PreviewMouseDownEvent });

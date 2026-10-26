@@ -17,7 +17,27 @@ public partial class MainWindow
     {
         UpdateThemeSelection();
         ThemeManager.Changed += ThemeChanged;
+        InputManager.Current.PreProcessInput += MenuButtonPreProcessInput;
         Closed += (_, _) => DisposeThemes();
+    }
+
+    private void MenuButtonPreProcessInput(object sender, PreProcessInputEventArgs e)
+    {
+        if ((_themeMenu?.IsOpen != true && _subtitleMenu?.IsOpen != true) ||
+            e.StagingItem.Input is not MouseButtonEventArgs { ChangedButton: MouseButton.Left, ButtonState: MouseButtonState.Pressed } mouse ||
+            mouse.RoutedEvent != Mouse.PreviewMouseDownEvent) return;
+        if (CloseThemeMenuAtButton(mouse.GetPosition(ThemeButton)) ||
+            (_subtitleMenu?.PlacementTarget is Button subtitleButton &&
+             CloseSubtitleMenuAtButton(subtitleButton, mouse.GetPosition(subtitleButton))))
+            e.Cancel();
+    }
+
+    private bool CloseThemeMenuAtButton(Point position)
+    {
+        if (_themeMenu?.IsOpen != true || !new Rect(new Point(), ThemeButton.RenderSize).Contains(position)) return false;
+        // Consume mouse-down before automatic menu dismissal can turn the same click into "open".
+        CloseThemeMenu();
+        return true;
     }
 
     private void ThemeClicked(object sender, RoutedEventArgs e)
@@ -30,6 +50,7 @@ public partial class MainWindow
             Style = (Style)FindResource("ThemeMenu"), PlacementTarget = ThemeButton,
             Placement = PlacementMode.Bottom, VerticalOffset = 8
         };
+        AddMediaCommandBindings(menu);
         foreach (var theme in ThemeManager.Themes)
         {
             var item = new MenuItem { Header = theme.Name, Tag = theme.Id, IsCheckable = true, IsChecked = theme.Id == ThemeManager.Current.Id };
@@ -91,6 +112,7 @@ public partial class MainWindow
         if (_themesDisposed) return;
         _themesDisposed = true;
         ThemeManager.Changed -= ThemeChanged;
+        InputManager.Current.PreProcessInput -= MenuButtonPreProcessInput;
         CloseThemeMenu();
     }
 }

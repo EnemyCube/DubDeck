@@ -111,12 +111,19 @@ public sealed partial class PlaybackController : IDisposable
             _playing = false;
             return;
         }
-        if (_project.Duration == 0) return;
+        await PlayCoreAsync(token).ConfigureAwait(false);
+    }, true);
+
+    public Task PlayAsync() => Enqueue(PlayCoreAsync, true);
+
+    private async Task PlayCoreAsync(CancellationToken token)
+    {
+        _error = null;
+        if (_playing || _project.Duration == 0) return;
         if (_basePosition >= TransportDuration(_basePosition)) { CommitTrackPositions(_basePosition); ResetTrackPauses(); _basePosition = 0; }
         _playing = true;
         await ReconcileAsync(true, token).ConfigureAwait(false);
-    }, true);
-
+    }
     public Task PauseAsync() => Enqueue(_ =>
     {
         Freeze();
@@ -603,7 +610,7 @@ public sealed partial class PlaybackController : IDisposable
     private sealed record ProjectSnapshot(Dictionary<string, AssetData> Assets, Dictionary<string, TrackData> Tracks,
         ClipData[] Clips, int MasterVolume, bool MasterMuted, long Duration, bool DuckingEnabled, int DuckAmount)
     {
-        public static ProjectSnapshot Empty => new(new(), new(), [], 100, false, 0, false, 60);
+        public static ProjectSnapshot Empty => new(new(), new(), [], 100, false, 0, false, 30);
         public static ProjectSnapshot From(ProjectDocument project, IReadOnlySet<string>? offlineAssetIds)
         {
             var assets = project.Assets.ToDictionary(asset => asset.Id, asset => new AssetData(asset.Id, asset.Name,

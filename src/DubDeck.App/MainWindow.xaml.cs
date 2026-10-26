@@ -35,6 +35,7 @@ public partial class MainWindow : Window
     {
         InitializeComponent();
         InitializeThemes();
+        InitializeMediaControls();
         _startupPath = startupPath;
         _engine = new MediaEngine();
         _waveforms = new WaveformService(_engine.LibVLC);

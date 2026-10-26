@@ -54,7 +54,7 @@ public sealed class ProjectDocument
     public int MasterVolume { get; set; } = 100;
     public bool MasterMuted { get; set; }
     public bool AutoDuckingEnabled { get; set; } = true;
-    public int DuckAmount { get; set; } = 60;
+    public int DuckAmount { get; set; } = 30;
     public List<MediaAsset> Assets { get; set; } = [];
     public List<TimelineTrack> Tracks { get; set; } =
         [new TimelineTrack { Id = "video", Name = "Video", Kind = TrackKind.Video }];

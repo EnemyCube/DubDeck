@@ -2,7 +2,7 @@
 
 Sync video with commentary, narration, music, and other audio tracks. DubDeck is a Windows desktop app with independent track controls, automatic audio ducking, and saved projects.
 
-![DubDeck workspace with video and audio tracks](docs/images/dubdeck-workspace.png)
+![DubDeck workspace with layered video and audio tracks](docs/images/dubdeck-workspace.png)
 
 ## Features
 

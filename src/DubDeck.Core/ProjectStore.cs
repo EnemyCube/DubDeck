@@ -164,7 +164,7 @@ public static class ProjectStore
         public int MasterVolume { get; set; } = 100;
         public bool MasterMuted { get; set; }
         public bool AutoDuckingEnabled { get; set; }
-        public int DuckAmount { get; set; } = 60;
+        public int DuckAmount { get; set; } = 30;
         public List<StoredAsset>? Assets { get; set; }
         public List<TimelineTrack>? Tracks { get; set; }
         public List<TimelineClip>? Clips { get; set; }

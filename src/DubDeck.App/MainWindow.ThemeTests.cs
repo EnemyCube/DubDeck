@@ -21,6 +21,18 @@ public partial class MainWindow
         UpdateTitle();
         try
         {
+            Activate();
+            ThemeClicked(ThemeButton, new RoutedEventArgs());
+            await Settle();
+            check(!CloseThemeMenuAtButton(new Point(-1, -1)) && _themeMenu?.IsOpen == true,
+                "Mouse-down away from the theme button does not trigger its toggle");
+            check(CloseThemeMenuAtButton(new Point(ThemeButton.ActualWidth / 2, ThemeButton.ActualHeight / 2)) && _themeMenu is null,
+                "Pressing the open theme button closes its menu before automatic dismissal can reopen it");
+            ThemeClicked(ThemeButton, new RoutedEventArgs());
+            await Settle();
+            ThemeClicked(ThemeButton, new RoutedEventArgs());
+            check(_themeMenu is null, "The theme button also toggles its menu closed through keyboard activation");
+            await Settle();
             foreach (var theme in ThemeManager.Themes)
             {
                 string previous = ThemeManager.Current.Id;

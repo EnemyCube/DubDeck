@@ -19,6 +19,16 @@ public partial class MainWindow
         if (sender is Button button) await SafeAsync(() => ToggleSubtitlesMenuAsync(button));
     }
 
+    private bool CloseSubtitleMenuAtButton(Button button, Point position)
+    {
+        if (_subtitleMenu?.IsOpen != true || !ReferenceEquals(_subtitleMenu.PlacementTarget, button) ||
+            !button.IsVisible || !new Rect(new Point(), button.RenderSize).Contains(position)) return false;
+        // Close before automatic context-menu dismissal can make the click reopen it.
+        CloseSubtitleMenu();
+        TouchOsd();
+        return true;
+    }
+
     private async Task ToggleSubtitlesMenuAsync(Button button)
     {
         if (_closing || _importing || _openingSubtitles) return;
@@ -63,6 +73,7 @@ public partial class MainWindow
                 }
                 if (state.Warning is string warning) Note(warning, warning: true);
             }
+            AddMediaCommandBindings(menu);
             menu.PreviewKeyDown += SubtitlesMenuKeyDown;
             _subtitleMenu = menu;
             _subtitleMenuOpen = true;
