@@ -1,39 +1,41 @@
-# DubDeck 1.7.0 validation
+# DubDeck 1.8.0 validation
 
-Validated on Windows 11 x64 on 2026-10-25 (America/Toronto).
-Application folder: artifacts/DubDeck-1.7.0/DubDeck.exe.
+Validated on Windows 11 x64 on 2026-10-26 (America/Toronto).
 
-The application is branded DubDeck in the workspace, both fullscreen OSDs, window titles, project and error dialogs, Windows executable metadata, launchers, source namespaces/projects, solution, notices, and README. The new vector icon depicts stacked video/audio decks and is rendered into a seven-size Windows ICO.
+Application code commit: 462292a56d0eec5dc2495b32fb1a600b83b2eec9, following the themes merge into main. Both editions report ProductVersion 1.8.0 and FileVersion 1.8.0.0.
 
-New projects use .dubdeck. Existing .videosync and .dubsync projects are recognized on open, drop, and command-line launch; saving an existing project retains its filename. JSON remains version 1. Start-VideoSync.ps1 and Start-DubSync.ps1 forward to Start-DubDeck.ps1. Waveform caches use the DubDeck data directory and reuse compatible caches from the previous application data directories without decoding again.
+## Results
 
-- Renamed solution restore/build: zero warnings and errors.
-- Core: 21/21 scenarios passed, including extension detection and legacy-to-DubDeck project round trips that preserve arrangement and playhead.
-- Focused native media: 2/2 scenarios passed. All seven supported codec/container fixtures were probed and decoded into waveforms. Existing-cache migration, cache recovery/invalidation, source silence, and active cancellation were verified.
-- Published application-folder workflow: 78 checks passed, including all visible branding labels and the executable assembly name, opening .dubdeck and legacy projects, and existing playback/mixer/subtitle/confirmation/waveform behavior. Normal shutdown took 646 ms.
-- Published performance: 13 checks passed with more than 10,000 clips, actual playback, dragging, voice analysis, and hardware-startup fallback. Normal shutdown took 93 ms without forced shutdown.
-- Inspected the rendered icon plus workspace and fullscreen screenshots. Verified the executable's Windows ProductName and FileDescription are DubDeck.
+- Release solution build: zero warnings and errors.
+- Core: 21/21 scenarios passed.
+- Native media: 13/13 checks passed across MP4, MOV, MKV, MP3, WAV, M4A and FLAC fixtures, including waveform generation, playback, seeking, subtitles, individual track pause/resume, volume/mute and voice ducking.
+- Folder edition: 187/187 desktop workflow checks passed; normal shutdown completed in 1,473 ms.
+- Folder performance: 13/13 checks passed with 10,042 clips, actual playback, decoder-startup fallback, dragging, voice analysis and repeated close requests; normal shutdown completed in 363 ms.
+- Portable edition: 187/187 desktop workflow checks passed; normal shutdown completed in 94 ms.
+- Theme coverage includes all eight palettes, persisted preferences, icon refresh, contrast, and stable yellow paused-track indicators.
+- Fullscreen coverage includes toggling Track controls closed, retaining it during mixer interaction, outside-click dismissal, dismissal when leaving the application, audio-only playback, and Escape.
+- Inspected rendered workspace and fullscreen mixer screenshots, including the palette icon, integrated track rows and yellow resume button.
+- Verified the portable bundle contains matching README, MIT license, third-party notices, bundled license texts and documentation image.
+- Verified the folder ZIP contains matching executable, application DLL, README, licenses, notices and VLC files.
 
-Evidence:
-- artifacts/media-test-results/media-20261025-122443.json.
-- artifacts/desktop-tests/20261025-122623/summary.json and workflow/performance folders.
+An initial native run using fixtures on the SMB workspace timed out while reading an MP3. The complete native suite and both packaged desktop suites passed using unchanged fixture copies on the local disk. The ten-minute soak was not repeated for this interface release.
 
-Rebuild: scripts/Build.ps1 -Publish.
-Repeat desktop coverage: scripts/Test-Desktop.ps1 -Runs 1.
-Focused native check: .tools/dotnet/dotnet.exe run --project tests/DubDeck.MediaTests -c Release -- --waveform-only --fixtures artifacts/media-fixtures.
-The full native transport/subtitle suite and ten-minute soak were not repeated for the rebrand; prior reports remain available. Prior release validation is preserved in artifacts/validation-1.6.1.md.
+## Release assets
 
-Published DubDeck.dll SHA-256: BB8E669D3DD6233F0F82F702552B7DC4404899ADC94F6A01CC1BA7DB19B09E58.
+| Asset | Bytes | SHA-256 |
+| --- | ---: | --- |
+| DubDeck-1.8.0-win.x64-portable.exe | 116356202 | d32da6a0508ad74ef48c335f9715148d5f9a6cd5a0aaff40eaf3f16fbef266e1 |
+| DubDeck-1.8.0-win-x64.zip | 209072511 | 527a4a2f312ef3242eab5127523497e0f40757b85d60933e479f5c330b98747f |
 
-## Portable edition
+Folder DubDeck.dll SHA-256: 68e96ec665c81cc136ba4c560c4e7e7aadc5a4c6fa4086b95871bcf8cc7c7a49.
 
-Executable: artifacts/DubDeck-1.7.0-Portable/DubDeck.exe.
+## Local evidence
 
-- The output contains only DubDeck.exe (115130287 bytes).
-- All 78 packaged workflow checks passed, including DubDeck branding, new and legacy project round trips, playback, and previous UI features.
-- Shutdown completed normally in 226 ms.
-- Evidence: artifacts/desktop-tests/20261025-123100/summary.json.
-- Rebuild: scripts/Build.ps1 -Portable.
-- Repeat: scripts/Test-Desktop.ps1 -Runs 0 -ApplicationPath artifacts/DubDeck-1.7.0-Portable/DubDeck.exe.
+- artifacts/media-test-results/media-20261026-112023.json
+- artifacts/release-1.8.0-validation/folder-workflow/
+- artifacts/release-1.8.0-validation/folder-performance/
+- artifacts/release-1.8.0-validation/portable-workflow/
+- artifacts/SHA256SUMS.txt
+- Previous release validation: artifacts/validation-1.7.0.md
 
-Portable DubDeck.exe SHA-256: EEA5F3EA4BBF00A717187B1C1CE04580D971C80D3D0866828728AFCB00FE4043.
+Rebuild with scripts/Build.ps1 -Publish or scripts/Build.ps1 -Portable. Run packaged desktop coverage with scripts/Test-Desktop.ps1 and the desired ApplicationPath.
