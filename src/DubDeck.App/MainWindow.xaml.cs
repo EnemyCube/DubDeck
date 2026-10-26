@@ -34,6 +34,7 @@ public partial class MainWindow : Window
     public MainWindow(string? startupPath = null)
     {
         InitializeComponent();
+        InitializeThemes();
         _startupPath = startupPath;
         _engine = new MediaEngine();
         _waveforms = new WaveformService(_engine.LibVLC);
@@ -48,12 +49,18 @@ public partial class MainWindow : Window
         Timeline.EditStarted += () => Run(() => PauseForEditAsync());
         Timeline.ClipMoved += (id, track, start) => Run(() => MoveClipAsync(id, track, start));
         Timeline.SelectionChanged += _ => UpdateContextMenu();
-        var context = new ContextMenu { Background = (Brush)FindResource("Panel"), Foreground = Brushes.White };
+        var context = new ContextMenu { Style = (Style)FindResource("ClipMenu"), Foreground = ColorBrush("#EBEFF7") };
         var locate = new MenuItem { Header = "Locate / replace source…" };
         locate.Click += (_, _) => Run(RelinkSelectedAsync);
-        var delete = new MenuItem { Header = "Delete selected clip", InputGestureText = "Delete" };
+        var deleteHeader = new DockPanel();
+        var deleteShortcut = new TextBlock { Text = "Delete", Foreground = ColorBrush("#98A6BC"), Margin = new Thickness(18, 0, 0, 0) };
+        DockPanel.SetDock(deleteShortcut, Dock.Right);
+        deleteHeader.Children.Add(deleteShortcut);
+        deleteHeader.Children.Add(new TextBlock { Text = "Delete selected clip" });
+        var delete = new MenuItem { Header = deleteHeader, InputGestureText = "Delete" };
+        System.Windows.Automation.AutomationProperties.SetName(delete, "Delete selected clip");
         delete.Click += (_, _) => Run(DeleteSelectedAsync);
-        context.Items.Add(locate); context.Items.Add(new Separator()); context.Items.Add(delete);
+        context.Items.Add(locate); context.Items.Add(new Separator { Background = ColorBrush("#2D3C50") }); context.Items.Add(delete);
         Timeline.ContextMenu = context;
 
         foreach (var bar in new[] { SeekBar, FullSeekBar, EmptySeekBar })
@@ -350,6 +357,11 @@ public partial class MainWindow : Window
     private void PreviewClicked(object sender, MouseButtonEventArgs e) { if (!_importing && e.ClickCount == 2) { ToggleFullscreen(); e.Handled = true; } }
     private void WindowKeyDown(object sender, KeyEventArgs e)
     {
+        if (_themeMenu is not null)
+        {
+            if (e.Key == Key.Escape) { CloseThemeMenu(); e.Handled = true; }
+            return;
+        }
         TouchOsd();
         bool ctrl = (Keyboard.Modifiers & ModifierKeys.Control) != 0;
         if(e.Key==Key.Escape && StopConfirmationPopup.IsOpen) { CloseStopConfirmation(); e.Handled=true; return; }
@@ -477,6 +489,7 @@ public partial class MainWindow : Window
         if (!ConfirmDiscard(allowBusy: true)) return;
         CloseFloatingControls();
         _closing = true;
+        DisposeThemes();
         _uiTimer.Stop();
         CancelPendingSeek();
         IsEnabled = false;
@@ -516,5 +529,5 @@ public partial class MainWindow : Window
         await waveformCleanup;
         await Task.Run(() => { _playback.Dispose(); _engine.Dispose(); });
     }
-    private static Brush ColorBrush(string color) => new SolidColorBrush((Color)ColorConverter.ConvertFromString(color));
+    private static Brush ColorBrush(string color) => ThemeManager.Brush(color);
 }

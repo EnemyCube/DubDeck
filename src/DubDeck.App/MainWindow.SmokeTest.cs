@@ -31,6 +31,9 @@ public partial class MainWindow
             Check(Math.Abs(emptyLane.TranslatePoint(new Point(), TimelinePanel).Y -
                 Timeline.TranslatePoint(new Point(0, TimelineSurface.RulerHeight), TimelinePanel).Y) < .5,
                 "The initial single-track workspace reserves the time ruler before the first track controls");
+            Check(ThemeButton.Content is System.Windows.Controls.Image && AppIcons.GetKind(ThemeButton) == "palette" &&
+                System.Windows.Automation.AutomationProperties.GetName(ThemeButton) == "Choose a color theme",
+                "Theme selection uses an accessible palette icon button");
             Check(EmptyTimelineOverlay.IsVisible, "Empty timelines display the drag-and-drop/import prompt");
             await ToggleSubtitlesMenuAsync(SubtitlesButton);
             await Task.Delay(120);
@@ -98,6 +101,7 @@ public partial class MainWindow
             Check(Timeline.VisibleWaveformColumns > 0 && Timeline.VisibleWaveformColumns < 5000,
                 "Faint waveform drawing is bounded to visible clip backgrounds");
             Capture("02-timeline.png");
+            await CheckThemesAsync(directory, Check, Capture);
             Activate(); // A real click activates the owning window before opening its popup.
             await System.Windows.Threading.Dispatcher.Yield(System.Windows.Threading.DispatcherPriority.Input);
             long stopPosition = _playback.PositionMs;
@@ -149,6 +153,20 @@ public partial class MainWindow
             FullTrackButton.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Button.ClickEvent));
             await Task.Delay(150);
             Check(FullTrackPopup.IsOpen && FullVideoMixer.IsVisible,"Track controls button opens the video mixer pop-up");
+            SmokeMouseDown(FullTrackButton);
+            Check(FullTrackPopup.IsOpen, "Pressing the open mixer button preserves its state until the toggle click");
+            FullTrackButton.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Button.ClickEvent));
+            Check(!TrackControlsOpen && _full, "Clicking Track controls a second time closes its popup and retains fullscreen");
+            FullTrackButton.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Button.ClickEvent));
+            SmokeMouseDown(_trackWidgets.Values.First()[1].Slider);
+            Check(FullTrackPopup.IsOpen, "Interacting with mixer controls keeps the popup open");
+            SmokeMouseDown(FullTime);
+            Check(!TrackControlsOpen, "Clicking outside the mixer dismisses it");
+            FullTrackButton.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Button.ClickEvent));
+            TrackControlsDeactivated(this, EventArgs.Empty);
+            Check(!TrackControlsOpen, "Leaving the application dismisses track controls");
+            FullTrackButton.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Button.ClickEvent));
+            await Task.Delay(100);
             UpdateOsd();
             Check(FullVideoControls.Opacity==1,"The playback bar stays visible while the mixer pop-up is open");
             Capture("03-video-track-controls.png");
@@ -178,11 +196,29 @@ public partial class MainWindow
             mixerWidgets[1].Pause.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Button.ClickEvent));
             await _playback.GetSubtitlesAsync();
             SyncPauseControls();
-            Check(_playback.PausedTrackIds.Contains(mixerTrack.Id) && mixerWidgets.All(w => AppIcons.GetKind(w.Pause) == "play"), "Fullscreen track pause updates every mixer");
+            Check(_playback.PausedTrackIds.Contains(mixerTrack.Id) && mixerWidgets.All(w => AppIcons.GetKind(w.Pause) == "play" &&
+                w.Pause.Background is SolidColorBrush background && background.Color == Color.FromRgb(255, 209, 102) &&
+                w.Pause.Foreground is SolidColorBrush foreground && foreground.Color == Color.FromRgb(38, 32, 21)),
+                "Paused track buttons offer resume and turn yellow across every mixer");
+            string pauseTheme = ThemeManager.Current.Id;
+            foreach (var theme in ThemeManager.Themes)
+            {
+                ThemeManager.Apply(theme.Id, persist: false);
+                Check(mixerWidgets.All(w => AppIcons.GetKind(w.Pause) == "play" &&
+                    w.Pause.Background is SolidColorBrush background && background.Color == Color.FromRgb(255, 209, 102) &&
+                    w.Pause.Foreground is SolidColorBrush foreground && foreground.Color == Color.FromRgb(38, 32, 21)),
+                    theme.Name + ": paused track buttons retain a readable yellow indicator");
+            }
+            ThemeManager.Apply(pauseTheme, persist: false);
+            await System.Windows.Threading.Dispatcher.Yield(System.Windows.Threading.DispatcherPriority.Render);
+            Capture("06-track-paused.png");
             mixerWidgets[2].Pause.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Button.ClickEvent));
             await _playback.GetSubtitlesAsync();
             SyncPauseControls();
-            Check(!_playback.PausedTrackIds.Contains(mixerTrack.Id) && mixerWidgets.All(w => AppIcons.GetKind(w.Pause) == "pause"), "Track resume controls stay synchronized");
+            Check(!_playback.PausedTrackIds.Contains(mixerTrack.Id) && mixerWidgets.All(w => AppIcons.GetKind(w.Pause) == "pause" &&
+                ReferenceEquals(w.Pause.Background, ColorBrush("#293245")) && ReferenceEquals(w.Pause.Foreground, ColorBrush("#EBEFF7")) &&
+                w.Pause.ToolTip is string tooltip && tooltip.StartsWith("Pause ")),
+                "Resumed track buttons retain the pause icon and restore normal themed colors");
 
             // Individual pause edits placements while native playback on other lanes continues.
             ToggleFullscreen();
@@ -229,6 +265,11 @@ public partial class MainWindow
             EmptyTrackButton.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Button.ClickEvent));
             await Task.Delay(150);
             Check(EmptyTrackPopup.IsOpen && FullEmptyMixer.IsVisible,"Track controls pop-up also works during video gaps");
+            SmokeMouseDown(EmptyTrackButton);
+            EmptyTrackButton.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Button.ClickEvent));
+            Check(!TrackControlsOpen && _full, "Audio-only Track controls also closes on a second click");
+            EmptyTrackButton.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Button.ClickEvent));
+            await Task.Delay(100);
             Capture("04-track-controls.png");
             var escape=new System.Windows.Input.KeyEventArgs(System.Windows.Input.Keyboard.PrimaryDevice,PresentationSource.FromVisual(this),Environment.TickCount,System.Windows.Input.Key.Escape) { RoutedEvent=System.Windows.Input.Keyboard.PreviewKeyDownEvent };
             TrackPopupKeyDown(this,escape);
@@ -295,7 +336,7 @@ public partial class MainWindow
         void Capture(string name)
         {
             UpdateLayout();
-            FrameworkElement target = StopConfirmationPopup.IsOpen ? (FrameworkElement)StopConfirmationPopup.Child : _subtitleMenu?.IsOpen == true ? _subtitleMenu : FullTrackPopup.IsOpen ? (FrameworkElement)FullTrackPopup.Child : EmptyTrackPopup.IsOpen ? (FrameworkElement)EmptyTrackPopup.Child : _full || _importing ? VideoOverlay : this;
+            FrameworkElement target = _themeMenu?.IsOpen == true ? _themeMenu : StopConfirmationPopup.IsOpen ? (FrameworkElement)StopConfirmationPopup.Child : _subtitleMenu?.IsOpen == true ? _subtitleMenu : FullTrackPopup.IsOpen ? (FrameworkElement)FullTrackPopup.Child : EmptyTrackPopup.IsOpen ? (FrameworkElement)EmptyTrackPopup.Child : _full || _importing ? VideoOverlay : this;
             double dpi = VisualTreeHelper.GetDpi(target).DpiScaleX;
             var bitmap = new RenderTargetBitmap((int)Math.Ceiling(target.ActualWidth * dpi), (int)Math.Ceiling(target.ActualHeight * dpi), 96 * dpi, 96 * dpi, PixelFormats.Pbgra32);
             bitmap.Render(target);
@@ -303,6 +344,9 @@ public partial class MainWindow
             using var output = File.Create(Path.Combine(directory, name)); encoder.Save(output);
         }
     }
+    private static void SmokeMouseDown(UIElement target) =>
+        target.RaiseEvent(new System.Windows.Input.MouseButtonEventArgs(System.Windows.Input.Mouse.PrimaryDevice,
+            Environment.TickCount, System.Windows.Input.MouseButton.Left) { RoutedEvent = System.Windows.Input.Mouse.PreviewMouseDownEvent });
     private System.Windows.Input.KeyEventArgs SmokeKey(System.Windows.Input.Key key) =>
         new(System.Windows.Input.Keyboard.PrimaryDevice, PresentationSource.FromVisual(this), Environment.TickCount, key)
         { RoutedEvent = System.Windows.Input.Keyboard.PreviewKeyDownEvent };

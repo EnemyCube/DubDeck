@@ -54,6 +54,7 @@ public partial class MainWindow
 
     private void CloseFloatingControls()
     {
+        CloseThemeMenu();
         CloseTrackControls();
         CloseSubtitleMenu();
         CloseStopConfirmation();

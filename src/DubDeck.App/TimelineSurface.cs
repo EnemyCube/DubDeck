@@ -35,7 +35,6 @@ public sealed partial class TimelineSurface : FrameworkElement
     private long _ghostStart;
     private string? _ghostTrack;
     private bool _dragging, _seeking;
-    private static readonly Dictionary<string, Brush> BrushCache = new();
     private static readonly Brush BackgroundBrush = Brush("#141A25");
     private static readonly Brush MutedBrush = Brush("#93A2B8");
     public event Action<long>? SeekRequested;
@@ -88,6 +87,7 @@ public sealed partial class TimelineSurface : FrameworkElement
         if (viewport.Width <= 0 || viewport.Height <= 0 || viewport == _viewport) return;
         _viewport = viewport; InvalidateScene();
     }
+    public void RefreshTheme() { InvalidateScene(); DrawOverlay(); }
     private void InvalidateScene() { _sceneDirty = true; InvalidateVisual(); }
     protected override void OnRender(DrawingContext dc)
     {
@@ -137,7 +137,7 @@ public sealed partial class TimelineSurface : FrameworkElement
             dc.DrawRoundedRectangle(fill, border, rect, 5, 5);
             dc.PushClip(new RectangleGeometry(rect));
             DrawWaveform(dc, asset, rect);
-            Text(dc, (_offline.Contains(asset.Id) ? "OFFLINE · " : "") + asset.Name, rect.X + 10, rect.Y + 9, 12, Brushes.White, Math.Max(0, rect.Width - 18));
+            Text(dc, (_offline.Contains(asset.Id) ? "OFFLINE · " : "") + asset.Name, rect.X + 10, rect.Y + 9, 12, Brush("#EBEFF7"), Math.Max(0, rect.Width - 18));
             Text(dc, Format(asset.DurationMs, false), rect.X + 10, rect.Y + 30, 10, MutedBrush, Math.Max(0, rect.Width - 18));
             dc.Pop();
         }
@@ -154,7 +154,7 @@ public sealed partial class TimelineSurface : FrameworkElement
             if (lane >= 0)
             {
                 bool valid = CanPreviewPlacement(asset, _ghostTrack, _ghostStart, _dragClip.Id);
-                dc.DrawRoundedRectangle(Brush(valid ? "#886CE5C0" : "#88EF7584"), new Pen(Brushes.White, 1), ClipRect(_ghostStart, asset.DurationMs, lane), 5, 5);
+                dc.DrawRoundedRectangle(Brush(valid ? "#886CE5C0" : "#88EF7584"), new Pen(Brush("#F1FCF8"), 1), ClipRect(_ghostStart, asset.DurationMs, lane), 5, 5);
             }
         }
         double px = _playhead / 1000d * _scale;
@@ -258,7 +258,7 @@ public sealed partial class TimelineSurface : FrameworkElement
         return Math.Ceiling(minimum / 86400) * 86400;
     }
 
-    private static Brush Brush(string color) { if (BrushCache.TryGetValue(color, out var cached)) return cached; var b = new SolidColorBrush((Color)ColorConverter.ConvertFromString(color)); b.Freeze(); return BrushCache[color] = b; }
+    private static Brush Brush(string color) => ThemeManager.Brush(color);
     public static string Format(long ms, bool precise = true)
     {
         var t = TimeSpan.FromMilliseconds(Math.Max(0, ms));

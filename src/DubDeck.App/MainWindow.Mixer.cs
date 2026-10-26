@@ -61,8 +61,11 @@ public partial class MainWindow
             }
             widgets.Voice.IsChecked = track.IsDuckingSource;
             AppIcons.SetToggle(widgets.Voice,"mic","Voice trigger for " + track.Name + (track.IsDuckingSource ? ": on" : ": off"));
+            // Highlight paused tracks while the play symbol offers resume.
+            widgets.Pause.Background = ColorBrush(track.IsPaused ? "#FFD166" : "#293245");
+            widgets.Pause.Foreground = ColorBrush(track.IsPaused ? "#262015" : "#EBEFF7");
+            widgets.Pause.BorderBrush = ColorBrush(track.IsPaused ? "#FFD166" : "#3A465C");
             AppIcons.SetButton(widgets.Pause, track.IsPaused ? "play" : "pause", (track.IsPaused ? "Resume " : "Pause ") + track.Name);
-            widgets.Pause.Background = ColorBrush(track.IsPaused ? "#435A75" : "#293245");
             widgets.Slider.Value = track.Volume;
             widgets.Value.Text = track.Volume + "%";
             AppIcons.SetButton(widgets.Mute, track.IsMuted ? "volume-x" : "volume-2", (track.IsMuted ? "Unmute " : "Mute ") + track.Name);

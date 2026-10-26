@@ -10,6 +10,7 @@ Sync video with commentary, narration, music, and other audio tracks. DubDeck is
 - Align clips by dragging them or pausing individual tracks while others continue.
 - Adjust track levels and automatically lower other audio while narration plays.
 - Play fullscreen with subtitles and track mixer controls.
+- Choose Midnight accent variants, Light, Dusk, or Jaboody Blue from the **Theme** menu; your choice is remembered.
 - Save arrangements, mix settings, and the playhead position in `.dubdeck` projects.
 
 ## Download

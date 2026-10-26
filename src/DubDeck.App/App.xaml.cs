@@ -24,6 +24,8 @@ public partial class App : Application
                 else if (e.Args[i] == "--fixtures" && i + 1 < e.Args.Length) FixtureDirectory = Path.GetFullPath(e.Args[++i]);
                 else if (!e.Args[i].StartsWith("--")) startupPath = Path.GetFullPath(e.Args[i]);
             }
+            string? themeTestDirectory = SmokeTestDirectory ?? PerformanceTestDirectory;
+            ThemeManager.Initialize(themeTestDirectory is null ? null : Path.Combine(themeTestDirectory, "theme-settings.json"));
             MainWindow = new MainWindow(startupPath);
             MainWindow.Show();
         }

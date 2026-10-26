@@ -27,6 +27,26 @@ public static class AppIcons
     public static string? GetKind(DependencyObject target) => (string?)target.GetValue(KindProperty);
     public static void SetKind(DependencyObject target,string value) => target.SetValue(KindProperty,value);
     private static readonly Dictionary<string,DrawingImage> Cache = [];
+    private static readonly DependencyProperty RegisteredProperty = DependencyProperty.RegisterAttached(
+        "Registered", typeof(bool), typeof(AppIcons), new PropertyMetadata(false));
+    private static readonly List<WeakReference<ButtonBase>> Buttons = [];
+
+    public static void RefreshTheme()
+    {
+        for (int index = Buttons.Count - 1; index >= 0; index--)
+        {
+            if (!Buttons[index].TryGetTarget(out var button)) { Buttons.RemoveAt(index); continue; }
+            if (GetKind(button) is string kind) Render(button, kind);
+        }
+    }
+
+    private static void Register(ButtonBase button)
+    {
+        if ((bool)button.GetValue(RegisteredProperty)) return;
+        button.SetValue(RegisteredProperty, true);
+        if (Buttons.Count % 128 == 0) Buttons.RemoveAll(reference => !reference.TryGetTarget(out _));
+        Buttons.Add(new WeakReference<ButtonBase>(button));
+    }
     public static void SetButton(Button button,string kind,string label)
     {
         if(GetKind(button)!=kind) SetKind(button,kind); else Render(button,kind);
@@ -39,6 +59,7 @@ public static class AppIcons
     }
     private static void Render(ButtonBase button,string kind)
     {
+        Register(button);
         var color=(button.Foreground as SolidColorBrush)?.Color ?? Color.FromRgb(235,239,247);
         string key=kind+color;
         if(!Cache.TryGetValue(key,out var source))

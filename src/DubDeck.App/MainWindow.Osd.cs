@@ -1,6 +1,5 @@
 using System.Windows;
 using System.Windows.Controls;
-using System.Windows.Media;
 using DubDeck.Core;
 namespace DubDeck.App;
 
@@ -8,27 +7,32 @@ public partial class MainWindow
 {
     private FrameworkElement CreateOsdTrack(TimelineTrack track)
     {
-        var grid=new Grid { Height=86 };
-        foreach(int height in new[]{30,24,32}) grid.RowDefinitions.Add(new RowDefinition { Height=new GridLength(height) });
-        var heading=new DockPanel();
-        var pause=new Button { Style=(Style)FindResource("OsdButton"), Width=30, Height=28, Padding=new Thickness(5), Margin=new Thickness(4,0,0,0) };
-        DockPanel.SetDock(pause,Dock.Right); heading.Children.Add(pause);
-        heading.Children.Add(new TextBlock { Text=track.Name, FontSize=14, FontWeight=FontWeights.SemiBold,
-            Foreground=ColorBrush("#E9F0FA"), TextTrimming=TextTrimming.CharacterEllipsis, ToolTip=track.Name });
+        var grid = new Grid { Height = 58, Margin = new Thickness(6, 2, 6, 2) };
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.1, GridUnitType.Star) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(36) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.3, GridUnitType.Star) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(42) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(36) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(36) });
+
+        var heading = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 12, 0) };
+        heading.Children.Add(new TextBlock { Text = track.Name, FontSize = 13, FontWeight = FontWeights.SemiBold,
+            Foreground = ColorBrush("#E9F0FA"), TextTrimming = TextTrimming.CharacterEllipsis, ToolTip = track.Name });
+        var role = new TextBlock { FontSize = 10, Margin = new Thickness(0, 3, 0, 0), TextTrimming = TextTrimming.CharacterEllipsis };
+        heading.Children.Add(role);
         grid.Children.Add(heading);
-        var details=new DockPanel(); Grid.SetRow(details,1);
-        var voice=new CheckBox { Style=(Style)FindResource("IconToggle"), Height=22, ToolTip="Use this track to trigger voice ducking" };
-        DockPanel.SetDock(voice,Dock.Right); details.Children.Add(voice);
-        var role=new TextBlock { FontSize=11 }; details.Children.Add(role); grid.Children.Add(details);
-        var levels=new Grid { Margin=new Thickness(0,3,0,0) }; Grid.SetRow(levels,2);
-        levels.ColumnDefinitions.Add(new ColumnDefinition { Width=new GridLength(34) });
-        levels.ColumnDefinitions.Add(new ColumnDefinition());
-        levels.ColumnDefinitions.Add(new ColumnDefinition { Width=new GridLength(38) });
-        var mute=new Button { Style=(Style)FindResource("OsdButton"), Width=30, Height=28, Padding=new Thickness(5), Margin=new Thickness(0) };
-        var slider=new Slider { Value=track.Volume, Margin=new Thickness(5,0,8,0), ToolTip=track.Name+" volume" };
-        System.Windows.Automation.AutomationProperties.SetName(slider,track.Name+" volume");
-        var value=new TextBlock { FontSize=11, Foreground=ColorBrush("#CDDBEE"), TextAlignment=TextAlignment.Right };
-        levels.Children.Add(mute); Grid.SetColumn(slider,1); levels.Children.Add(slider); Grid.SetColumn(value,2); levels.Children.Add(value); grid.Children.Add(levels);
+
+        var mute = new Button { Style = (Style)FindResource("OsdButton"), Width = 30, Height = 30, Padding = new Thickness(5), Margin = new Thickness(0) };
+        var slider = new Slider { Value = track.Volume, Margin = new Thickness(8, 0, 8, 0), ToolTip = track.Name + " volume" };
+        System.Windows.Automation.AutomationProperties.SetName(slider, track.Name + " volume");
+        var value = new TextBlock { FontSize = 11, Foreground = ColorBrush("#CDDBEE"), TextAlignment = TextAlignment.Right, Margin = new Thickness(0, 0, 8, 0) };
+        var pause = new Button { Style = (Style)FindResource("OsdButton"), Width = 30, Height = 30, Padding = new Thickness(5), Margin = new Thickness(0) };
+        var voice = new CheckBox { Style = (Style)FindResource("IconToggle"), Height = 30, ToolTip = "Use this track to trigger voice ducking" };
+        Grid.SetColumn(mute, 1); grid.Children.Add(mute);
+        Grid.SetColumn(slider, 2); grid.Children.Add(slider);
+        Grid.SetColumn(value, 3); grid.Children.Add(value);
+        Grid.SetColumn(pause, 4); grid.Children.Add(pause);
+        Grid.SetColumn(voice, 5); grid.Children.Add(voice);
         var widgets=new TrackWidgets(slider,mute,value,pause,voice,role);
         if(!_trackWidgets.TryGetValue(track.Id,out var group)) _trackWidgets[track.Id]=group=[];
         group.Add(widgets);
@@ -37,7 +41,6 @@ public partial class MainWindow
         voice.Click+=(_,_)=> { if(_updating)return; track.IsDuckingSource=voice.IsChecked==true; SyncTrackControls(track); TrackLevelChanged(); };
         slider.ValueChanged+=(_,e)=> { if(_updating)return; track.Volume=(int)Math.Round(e.NewValue); SyncTrackControls(track); TrackLevelChanged(); };
         SyncTrackControls(track);
-        return new Border { Width=304, Margin=new Thickness(6), Padding=new Thickness(12), CornerRadius=new CornerRadius(10),
-            Background=ColorBrush("#1B2737"), BorderBrush=ColorBrush("#304157"), BorderThickness=new Thickness(1), Child=grid };
+        return grid;
     }
 }

@@ -17,6 +17,19 @@ public partial class MainWindow
         if(open) { popup.PlacementTarget=_videoVisible ? FullVideoControls : FullEmptyControls; popup.HorizontalOffset=24; popup.IsOpen=true; }
         TouchOsd();
     }
+    // Keep the popup open until the click handler can toggle it. Automatic popup
+    // dismissal otherwise closes it on mouse-down and the button reopens it on click.
+    private void TrackControlsOutsideMouseDown(object sender, MouseButtonEventArgs e)
+    {
+        if (!TrackControlsOpen) return;
+        if (e.OriginalSource is DependencyObject source &&
+            (ReferenceEquals(source, FullTrackButton) || FullTrackButton.IsAncestorOf(source) ||
+             ReferenceEquals(source, EmptyTrackButton) || EmptyTrackButton.IsAncestorOf(source) ||
+             FullTrackPopup.Child is UIElement fullChild && (ReferenceEquals(source, fullChild) || fullChild.IsAncestorOf(source)) ||
+             EmptyTrackPopup.Child is UIElement emptyChild && (ReferenceEquals(source, emptyChild) || emptyChild.IsAncestorOf(source)))) return;
+        CloseTrackControls();
+    }
+    private void TrackControlsDeactivated(object? sender, EventArgs e) => CloseTrackControls();
     private void CloseTrackControls()
     {
         FullTrackPopup.IsOpen=false; EmptyTrackPopup.IsOpen=false;
