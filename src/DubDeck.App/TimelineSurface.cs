@@ -27,7 +27,7 @@ public sealed partial class TimelineSurface : FrameworkElement
     public IReadOnlySet<string> OfflineAssetIds => _offline;
     protected override int VisualChildrenCount => 1;
     protected override Visual GetVisualChild(int index) => index == 0 ? _overlay : throw new ArgumentOutOfRangeException(nameof(index));
-    private double _scale = 50; // pixels per second
+    private double _scale = 5; // pixels per second (10% zoom)
     private long _playhead;
     private string? _selected;
     private TimelineClip? _dragClip;

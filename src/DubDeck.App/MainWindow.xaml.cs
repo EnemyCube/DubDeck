@@ -491,6 +491,7 @@ public partial class MainWindow : Window
         CloseFloatingControls();
         _closing = true;
         DisposeThemes();
+        DisposeMediaControls();
         _uiTimer.Stop();
         CancelPendingSeek();
         IsEnabled = false;

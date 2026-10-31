@@ -124,6 +124,9 @@ public partial class MainWindow
     private void SetOsdVisible(bool visible)
     {
         if (FullVideoControls is null || FullEmptyControls is null) return;
+        // The VLC overlay is a separate WPF window, so set its cursor directly.
+        VideoOverlay.Cursor = _full && !visible ? Cursors.None : null;
+        VideoOverlay.ForceCursor = _full && !visible;
         double opacity = visible ? 1 : 0;
         if (FullVideoControls.Opacity == opacity && FullEmptyControls.Opacity == opacity) return;
         FullVideoControls.Opacity = FullEmptyControls.Opacity = opacity;

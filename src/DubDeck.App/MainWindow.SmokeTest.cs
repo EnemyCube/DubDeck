@@ -36,6 +36,7 @@ public partial class MainWindow
                 "Theme selection uses an accessible palette icon button");
             Check(_project.DuckAmount == 30 && _duckControls.All(w => w.Amount.Value == 30 && w.Value.Text == "30%"),
                 "New projects start with 30% ducking in every mixer");
+            Check(Timeline.Scale == 5 && ZoomLabel.Text == "10%", "The timeline starts at 10% zoom");
             Check(EmptyTimelineOverlay.IsVisible, "Empty timelines display the drag-and-drop/import prompt");
             await ToggleSubtitlesMenuAsync(SubtitlesButton);
             await Task.Delay(120);
@@ -136,6 +137,12 @@ public partial class MainWindow
             await Task.Delay(250);
             Check(Header.Visibility == Visibility.Collapsed && FullVideoControls.Visibility == Visibility.Visible, "Fullscreen hides editing panels and exposes transport");
             Check(_playback.PositionMs == paused, "Fullscreen preserves paused position");
+            SetOsdVisible(false);
+            Check(VideoOverlay.Cursor == System.Windows.Input.Cursors.None && VideoOverlay.ForceCursor,
+                "Fullscreen hides the cursor with the video playback controls");
+            OverlayMouseMove(VideoOverlay, new System.Windows.Input.MouseEventArgs(System.Windows.Input.Mouse.PrimaryDevice, Environment.TickCount));
+            Check(VideoOverlay.Cursor is null && !VideoOverlay.ForceCursor && FullVideoControls.Opacity == 1,
+                "Moving the mouse restores the fullscreen cursor and playback controls");
             FullStopButton.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Button.ClickEvent));
             await Task.Delay(80);
             Check(StopConfirmationPopup.IsOpen && _playback.PositionMs == paused,
@@ -264,6 +271,10 @@ public partial class MainWindow
             await Task.Delay(80);
             Check(StopConfirmationPopup.IsOpen, "Audio-only fullscreen Stop also requires confirmation");
             CancelStopButton.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Button.ClickEvent));
+            SetOsdVisible(false);
+            Check(VideoOverlay.Cursor == System.Windows.Input.Cursors.None && VideoOverlay.ForceCursor,
+                "Audio-only fullscreen hides the cursor with its controls");
+            TouchOsd();
             Capture("03-fullscreen.png");
             EmptyTrackButton.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Button.ClickEvent));
             await Task.Delay(150);

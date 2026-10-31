@@ -34,6 +34,18 @@ public partial class MainWindow
             await _playback.GetSubtitlesAsync();
             check(!_playback.IsPlaying, "The keyboard media play/pause key pauses playback once");
 
+            Keyboard.ClearFocus();
+            SendNativeMediaKey(this);
+            await _playback.GetSubtitlesAsync();
+            check(_playback.IsPlaying, "The native media key starts playback without a WPF focus target");
+            SendNativeMediaKey(this, repeat: true);
+            await _playback.GetSubtitlesAsync();
+            check(_playback.IsPlaying, "Holding the native media key does not toggle playback repeatedly");
+            SendNativeMediaKey(this);
+            await _playback.GetSubtitlesAsync();
+            check(!_playback.IsPlaying, "The next native media key press pauses playback exactly once");
+            PlayButton.Focus();
+
             MediaCommands.Play.Execute(null, PlayButton);
             MediaCommands.Play.Execute(null, PlayButton);
             await _playback.GetSubtitlesAsync();
@@ -88,17 +100,30 @@ public partial class MainWindow
 
             ToggleFullscreen();
             await Task.Delay(150);
-            FullPlay.Focus();
+            await Dispatcher.Yield(DispatcherPriority.ContextIdle);
+            (_videoVisible ? FullPlay : EmptyPlay).Focus();
             SendMediaAppCommand(11, VideoOverlay);
             await WaitForMediaSeekAsync(Math.Min(10500, TimelineRules.Duration(_project)));
             check(_full && !_playback.IsPlaying, "The Windows Next media command skips ten seconds in fullscreen");
+            Keyboard.ClearFocus();
+            SendNativeMediaKey(VideoOverlay);
+            await _playback.GetSubtitlesAsync();
+            check(_playback.IsPlaying, "The native media key works through the separate fullscreen overlay window");
+            SendMediaAppCommand(14, VideoOverlay);
+            await _playback.GetSubtitlesAsync();
+            check(!_playback.IsPlaying, "The fullscreen native app command pauses exactly once without WPF focus");
+            await Dispatcher.Yield(DispatcherPriority.ContextIdle);
+            (_videoVisible ? FullPlay : EmptyPlay).Focus();
             PressMediaKey(Key.MediaPlayPause);
             await _playback.GetSubtitlesAsync();
             check(_playback.IsPlaying, "The media play/pause key also works on fullscreen controls");
             PressMediaKey(Key.MediaPlayPause);
             await _playback.GetSubtitlesAsync();
             check(!_playback.IsPlaying, "Fullscreen media pause leaves the playhead paused");
+            SetOsdVisible(false);
             ToggleFullscreen();
+            check(VideoOverlay.Cursor is null && !VideoOverlay.ForceCursor,
+                "Leaving fullscreen restores the cursor even when the controls were hidden");
         }
         finally
         {
@@ -116,6 +141,14 @@ public partial class MainWindow
         var source = PresentationSource.FromVisual(target) as HwndSource ??
             throw new InvalidOperationException("The media command target has no native window.");
         SendMessage(source.Handle, 0x0319, source.Handle, new IntPtr(command << 16));
+    }
+
+    private void SendNativeMediaKey(Visual target, bool repeat = false)
+    {
+        var source = PresentationSource.FromVisual(target) as HwndSource ??
+            throw new InvalidOperationException("The media key target has no native window.");
+        SendMessage(source.Handle, 0x0100, new IntPtr(0xB3), new IntPtr(repeat ? 1L << 30 : 1));
+        SendMessage(source.Handle, 0x0101, new IntPtr(0xB3), new IntPtr((1L << 31) | (1L << 30) | 1));
     }
 
     private void PressMediaKey(Key key) =>
