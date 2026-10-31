@@ -26,7 +26,7 @@ The staging root must contain DubDeck-<version>/ and DubDeck-<version>-Portable/
 
 Verify an existing release, even if its expanded folder has been archived:
 
-    python scripts/Verify-Release.py --manifest artifacts/release-1.9.0-validation/packages.json
+    python scripts/Verify-Release.py
 
 Use --check-source only when the current checkout is expected to match the historical release snapshot. Later source edits and archived unused assets deliberately make that strict comparison fail.
 
