@@ -50,3 +50,6 @@ Write-Host "Fixtures ready: $destination"
 
 # Audible voice-like tone for two seconds, silence for two seconds, repeating.
 Invoke-Encode 'voice-gated.wav' @('-f','lavfi','-i','aevalsrc=if(lt(mod(t\,4)\,2)\,0.25*sin(2*PI*440*t)\,0):s=16000','-t','12','-c:a','pcm_s16le')
+# Constant commentary over a video whose audio alternates loud and whisper-level passages.
+Invoke-Encode 'voice-steady.wav' @('-f','lavfi','-i','aevalsrc=0.25*sin(2*PI*440*t):s=16000','-t','12','-c:a','pcm_s16le')
+Invoke-Encode 'ducking-levels.mkv' @('-f','lavfi','-i','testsrc2=size=160x90:rate=25','-f','lavfi','-i','aevalsrc=if(lt(mod(t\,4)\,2)\,0.125\,0.008)*sin(2*PI*660*t):s=16000','-t','12','-c:v','libx264','-preset','ultrafast','-pix_fmt','yuv420p','-c:a','pcm_s16le','-shortest')

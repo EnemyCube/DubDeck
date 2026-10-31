@@ -10,6 +10,7 @@ var tests = new (string Name, Action Run)[]
     ("Saved playhead round-trips, clamps, and defaults for older projects", PlayheadPersistence),
     ("New projects enable ducking with Audio 1 as the default Voice source", DefaultDucking),
     ("Voice ducking smooths, holds, and releases", Ducking),
+    ("Ducking preserves quiet target passages and follows their mix level", QuietDucking),
     ("Ducking preferences save while runtime pause does not", DuckPreferences),
     ("Empty projects have zero duration", EmptyProject),
     ("Active scheduling uses exclusive ends and includes audio past video", ActiveScheduling),
@@ -362,6 +363,26 @@ static void Ducking()
     if(envelope.Gain>.001) throw new Exception("100% should silence beds");
     for(int i=0;i<15;i++) envelope.Update(false,true,100,.04);
     if(Math.Abs(envelope.Gain-1)>.001) throw new Exception("Disabled must restore volume");
+}
+static void QuietDucking()
+{
+    var envelope = new DuckingEnvelope();
+    for (int i = 0; i < 5; i++) envelope.Update(true, true, 60, .04);
+    True(Math.Abs(envelope.GainAtLevel(-40, 100) - 1) < .001);
+    True(Math.Abs(envelope.GainAtLevel(-30, 100) - 1) < .001);
+    True(Math.Abs(envelope.GainAtLevel(-27, 100) - .7) < .001);
+    True(Math.Abs(envelope.GainAtLevel(-24, 100) - .4) < .001);
+    True(Math.Abs(envelope.GainAtLevel(-12, 100) - .4) < .001);
+    // Lowering the target track makes it quiet even if its source is loud.
+    True(Math.Abs(envelope.GainAtLevel(-12, 10) - 1) < .001);
+    // Target loudness cannot trigger the commentary envelope by itself.
+    envelope.Reset();
+    True(Math.Abs(envelope.GainAtLevel(-12, 100) - 1) < .001);
+    for (int i = 0; i < 5; i++) envelope.Update(true, true, 100, .04);
+    True(Math.Abs(envelope.GainAtLevel(-40, 100) - 1) < .001);
+    True(envelope.GainAtLevel(-12, 100) < .001);
+    for (int i = 0; i < 15; i++) envelope.Update(false, true, 100, .04);
+    True(Math.Abs(envelope.GainAtLevel(-12, 100) - 1) < .001);
 }
 static void DuckPreferences()
 {

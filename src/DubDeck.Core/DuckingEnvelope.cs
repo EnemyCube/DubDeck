@@ -16,5 +16,16 @@ public sealed class DuckingEnvelope
         Gain += Math.Clamp(target - Gain, -dt / duration, dt / duration);
         return Gain;
     }
+    /// <summary>Preserve quiet target audio, gradually applying the duck gain to louder passages.</summary>
+    public double GainAtLevel(double sourceLevelDb, int trackVolume)
+    {
+        if (trackVolume <= 0 || double.IsNaN(sourceLevelDb)) return 1;
+        // Measure before ducking to avoid gain feedback. Master volume does not
+        // change which passages are quiet relative to the track's own mix level.
+        double level = sourceLevelDb + 20 * Math.Log10(Math.Clamp(trackVolume, 0, 100) / 100d);
+        const double quietLevelDb = -30, fullDuckLevelDb = -24;
+        double strength = Math.Clamp((level - quietLevelDb) / (fullDuckLevelDb - quietLevelDb), 0, 1);
+        return 1 - (1 - Gain) * strength;
+    }
     public void Reset() { _hold = 0; Gain = 1; }
 }

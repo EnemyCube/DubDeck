@@ -406,7 +406,10 @@ internal sealed class MediaSuite
                 await Until(()=>_controller.PositionMs>4700,TimeSpan.FromSeconds(3));
                 Require(_controller.Diagnostics.Single(d=>d.TrackId=="bed").Volume<=22,"Adjusted duck amount was not applied");
                 voiceTrack.IsMuted=true; await _controller.UpdateVolumeAsync(project);
-                await Task.Delay(900);
+                await Task.Delay(100);
+                Require(_controller.Diagnostics.Single(d=>d.TrackId=="bed").Volume<90,
+                    "Muting commentary bypassed the smooth ducking release");
+                await Task.Delay(800);
                 Require(_controller.Diagnostics.Single(d=>d.TrackId=="bed").Volume>=98,"Muted voice continued ducking");
                 voiceTrack.IsMuted=false; await _controller.UpdateVolumeAsync(project);
                 await _controller.SeekAsync(500);
@@ -433,6 +436,49 @@ internal sealed class MediaSuite
                 project.AutoDuckingEnabled=false; await _controller.UpdateVolumeAsync(project);
                 await Task.Delay(600);
                 Require(_controller.Diagnostics.Single(d=>d.TrackId=="bed").Volume==100,"Disabling ducking did not restore the bed");
+                await _controller.StopAsync();
+            });
+            await Check("Voice activity preserves quiet video while commentary stays loud", async () =>
+            {
+                var voice = await engine.ProbeAsync(Fixture("voice-steady.wav"));
+                var video = await engine.ProbeAsync(Fixture("ducking-levels.mkv"));
+                var bed = _assets["audio.wav"];
+                var voiceTrack = new TimelineTrack { Id = "voice", Kind = TrackKind.Audio, IsDuckingSource = true };
+                var videoTrack = new TimelineTrack { Id = "video", Kind = TrackKind.Video };
+                var project = new ProjectDocument { MasterMuted = true, AutoDuckingEnabled = true, DuckAmount = 60,
+                    Assets = [voice, video, bed], Tracks = [videoTrack, voiceTrack, new() { Id = "bed", Kind = TrackKind.Audio }],
+                    Clips = [new() { AssetId = voice.Id, TrackId = "voice" }, new() { AssetId = video.Id, TrackId = "video" },
+                        new() { AssetId = bed.Id, TrackId = "bed" }] };
+                await _controller.SetProjectAsync(project);
+                await _controller.PlayAsync();
+                await Until(() => _controller.Diagnostics.Any(d => d.TrackId == "video" && d.Volume <= 42),
+                    TimeSpan.FromSeconds(2), "Loud video audio did not duck under commentary");
+                await Until(() => _controller.PositionMs > 3000, TimeSpan.FromSeconds(4));
+                var quiet = _controller.Diagnostics.Single(d => d.TrackId == "video");
+                Require(quiet.ActivityDb is >= -50 and <= -38, "The video fixture was not at whisper level");
+                Require(quiet.Volume == 100, "Whisper-level video audio was reduced while commentary was active");
+                Require(_controller.Diagnostics.Single(d => d.TrackId == "voice").ActivityDb is >= -18 and <= -12,
+                    "Commentary did not remain loud throughout the quiet video passage");
+                Require(_controller.Diagnostics.Single(d => d.TrackId == "bed").Volume <= 42,
+                    "The quiet video passage incorrectly restored another, louder target track");
+                await Until(() => _controller.PositionMs > 4700, TimeSpan.FromSeconds(3));
+                Require(_controller.Diagnostics.Single(d => d.TrackId == "video").Volume <= 42,
+                    "The next loud video passage did not duck again");
+                videoTrack.Volume = 10;
+                await _controller.UpdateVolumeAsync(project);
+                await Task.Delay(150);
+                Require(_controller.Diagnostics.Single(d => d.TrackId == "video").Volume == 10,
+                    "A video track already mixed quietly was reduced again");
+                Require(_controller.Diagnostics.Single(d => d.TrackId == "bed").Volume <= 42,
+                    "Changing video mix level affected another target's ducking");
+                voiceTrack.IsDuckingSource = false;
+                await _controller.UpdateVolumeAsync(project);
+                await Task.Delay(100);
+                Require(_controller.Diagnostics.Single(d => d.TrackId == "bed").Volume < 90,
+                    "Removing the final Voice designation bypassed the smooth release");
+                await Task.Delay(900);
+                Require(_controller.Diagnostics.Single(d => d.TrackId == "bed").Volume == 100,
+                    "Target audio triggered ducking after the final Voice designation was removed");
                 await _controller.StopAsync();
             });
             if (_args.Contains("--soak", StringComparer.Ordinal))

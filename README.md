@@ -26,7 +26,7 @@ Get the latest build from [GitHub Releases](https://github.com/EnemyCube/DubDeck
 
 1. **Import:** Drop media into the window or press **Ctrl+I**. Videos append in sequence; audio starts at the playhead on a new track.
 2. **Align:** Drag clips to line up cues, or pause/resume a single track while the others play. Right-click a clip to replace or relink its media.
-3. **Mix:** Adjust track levels and mute controls. Mark narration tracks **Voice** and set **Duck amount** to lower other audio while narration is audible. New projects enable Auto duck and mark the first audio track as Voice.
+3. **Mix:** Adjust track levels and mute controls. Mark narration tracks **Voice** and set **Duck amount** to lower louder passages in other audio while narration is audible. Quiet passages, such as whispered dialogue, keep their volume. New projects enable Auto duck and mark the first audio track as Voice.
 4. **Play:** Press **Space** to play/pause, click the timeline to seek, and use **Ctrl+mouse wheel** to zoom.
 5. **Fullscreen:** Press **F11** to enter fullscreen and **Escape** to leave it. Use **Subtitles** and **Track controls** for captions and the mixer.
 6. **Save:** Press **Ctrl+S** to save a project or **Ctrl+O** to reopen one.

@@ -94,7 +94,7 @@ public partial class MainWindow
                 bool fullscreen = host != DuckControls;
                 var enabled = new CheckBox { Style=(Style)FindResource("IconToggle"), Width=36, Height=30, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0,0,14,0) };
 
-                var amount = new Slider { Width = fullscreen ? 132 : 120, Minimum = 0, Maximum = 100, ToolTip = "Reduce non-Voice tracks by this percentage while Voice tracks are audible" };
+                var amount = new Slider { Width = fullscreen ? 132 : 120, Minimum = 0, Maximum = 100, ToolTip = "Reduce louder passages on non-Voice tracks by up to this percentage while Voice tracks are audible; quiet passages keep their volume" };
                 var label = new TextBlock { Text = fullscreen ? "Reduce by" : "Duck amount", Margin = new Thickness(0,0,8,0), VerticalAlignment = VerticalAlignment.Center };
                 var value = new TextBlock { Width = 42, Margin = new Thickness(7,0,0,0), VerticalAlignment = VerticalAlignment.Center };
                 host.Children.Add(enabled); host.Children.Add(label); host.Children.Add(amount); host.Children.Add(value);
@@ -106,7 +106,7 @@ public partial class MainWindow
         foreach (var widgets in _duckControls)
         {
             widgets.Enabled.IsChecked = _project.AutoDuckingEnabled;
-            AppIcons.SetToggle(widgets.Enabled,"audio-waveform", "Auto duck: " + (_project.AutoDuckingEnabled ? "on" : "off") + ". Reduce other tracks while Voice audio is active.");
+            AppIcons.SetToggle(widgets.Enabled,"audio-waveform", "Auto duck: " + (_project.AutoDuckingEnabled ? "on" : "off") + ". Reduce louder passages on other tracks while Voice audio is active; preserve quiet passages.");
             widgets.Amount.Value = _project.DuckAmount;
             widgets.Value.Text = _project.DuckAmount + "%";
         }

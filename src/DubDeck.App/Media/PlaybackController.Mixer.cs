@@ -93,10 +93,15 @@ public sealed partial class PlaybackController
     }
     private void SyncMeters()
     {
+        // Keep target meters alive through the envelope's release, including when
+        // the last Voice track is muted or loses its Voice designation.
+        bool hasVoice = _project.Tracks.Values.Any(track => track.Voice) || _ducking.Gain < 1;
         foreach (var slot in Slots())
         {
-            bool needed = slot.Clip is not null && slot.Asset!.HasAudio && _project.DuckingEnabled &&
-                _project.Tracks.TryGetValue(slot.TrackId, out var track) && track.Voice;
+            // Both the commentary trigger and each target need pre-duck levels:
+            // quiet target passages must stay audible while commentary is active.
+            bool needed = slot.Clip is not null && slot.Asset!.HasAudio && _project.DuckingEnabled && hasVoice &&
+                _project.Tracks.TryGetValue(slot.TrackId, out var track) && (track.Voice || !track.Muted && track.Volume > 0);
             if (!needed) { slot.Meter?.Dispose(); slot.Meter = null; continue; }
             if (slot.Meter is null && (!_playing || _pausedTracks.ContainsKey(slot.TrackId))) continue;
             if (slot.Meter is null)
@@ -120,7 +125,7 @@ public sealed partial class PlaybackController
         double dt = Stopwatch.GetElapsedTime(_duckStamp, now).TotalSeconds;
         _duckStamp = now;
         bool voice = Slots().Any(slot => slot.Running && slot.Meter is not null && !slot.MeterPending &&
-            _project.Tracks.TryGetValue(slot.TrackId, out var track) && !track.Muted && track.Volume > 0 &&
+            _project.Tracks.TryGetValue(slot.TrackId, out var track) && track.Voice && !track.Muted && track.Volume > 0 &&
             slot.Meter.LevelDb + 20 * Math.Log10(track.Volume / 100d) >= -40);
         _ducking.Update(_project.DuckingEnabled, voice, _project.DuckAmount, dt);
         ApplyVolumes();

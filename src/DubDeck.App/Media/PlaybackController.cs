@@ -499,7 +499,8 @@ public sealed partial class PlaybackController : IDisposable
         {
             if (slot.Clip is null || !_project.Tracks.TryGetValue(slot.TrackId, out var track)) continue;
             var muted = _project.MasterMuted || track.Muted || _pausedTracks.ContainsKey(slot.TrackId) || !_playing || !slot.Ready;
-            var gain = _project.DuckingEnabled && !track.Voice ? _ducking.Gain : 1;
+            var gain = _project.DuckingEnabled && !track.Voice && slot.Meter is not null && !slot.MeterPending
+                ? _ducking.GainAtLevel(slot.Meter.LevelDb, track.Volume) : 1;
             var volume = (int)Math.Round(_project.MasterVolume * track.Volume / 100.0 * gain, MidpointRounding.AwayFromZero);
             if (slot.Player.Volume != volume) slot.Player.Volume = volume;
             if (slot.Player.Mute != muted) slot.Player.Mute = muted;
