@@ -2,9 +2,15 @@
   <PropertyGroup>
     <OutputType>WinExe</OutputType><TargetFramework>net10.0-windows</TargetFramework><UseWPF>true</UseWPF>
     <Nullable>enable</Nullable><ImplicitUsings>enable</ImplicitUsings><RuntimeIdentifier>win-x64</RuntimeIdentifier>
-    <PlatformTarget>x64</PlatformTarget><AssemblyName>DubDeck</AssemblyName><RootNamespace>DubDeck.App</RootNamespace><Product>DubDeck</Product><Title>DubDeck</Title><Description>Arrange video and layered audio for synchronized playback.</Description><ApplicationManifest>app.manifest</ApplicationManifest><ApplicationIcon>Assets/DubDeck.ico</ApplicationIcon><Version>1.8.2</Version>
+    <PlatformTarget>x64</PlatformTarget><AssemblyName>DubDeck</AssemblyName><RootNamespace>DubDeck.App</RootNamespace><Product>DubDeck</Product><Title>DubDeck</Title><Description>Arrange video and layered audio for synchronized playback.</Description><ApplicationManifest>app.manifest</ApplicationManifest><ApplicationIcon>Assets/DubDeck.ico</ApplicationIcon><Version>1.9.0</Version>
+    <VlcWindowsX64Enabled>true</VlcWindowsX64Enabled>
+    <VlcWindowsX86Enabled>false</VlcWindowsX86Enabled>
+    <VlcWindowsArm64Enabled>false</VlcWindowsArm64Enabled>
   </PropertyGroup>
   <ItemGroup>
+    <!-- Use Windows pointer input rather than the legacy WISP pen service,
+         which can deadlock while WPF tears down mouse capture at shutdown. -->
+    <RuntimeHostConfigurationOption Include="Switch.System.Windows.Input.Stylus.EnablePointerSupport" Value="true" />
     <Resource Include="Assets/DubDeck.ico" />
     <Resource Include="Assets/Icons/*.svg" />
     <ProjectReference Include="../DubDeck.Core/DubDeck.Core.csproj" />

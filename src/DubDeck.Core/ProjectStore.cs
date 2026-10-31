@@ -10,12 +10,15 @@ public static class ProjectStore
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
         WriteIndented = true,
+        UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow,
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
         Converters = { new JsonStringEnumConverter(JsonNamingPolicy.CamelCase) }
     };
 
     public static ProjectDocument Load(string path)
     {
+        if (!ProjectFile.IsProjectPath(path))
+            throw new InvalidDataException("Only .dubdeck project files are supported.");
         var fullPath = Path.GetFullPath(path);
         var folder = Path.GetDirectoryName(fullPath)!;
         StoredProject stored;
@@ -41,7 +44,6 @@ public static class ProjectStore
             PlayheadMs = stored.PlayheadMs,
             MasterVolume = stored.MasterVolume,
             MasterMuted = stored.MasterMuted,
-            AutoLevelEnabled = stored.AutoLevelEnabled,
             AutoDuckingEnabled = stored.AutoDuckingEnabled,
             DuckAmount = stored.DuckAmount,
             Tracks = stored.Tracks,
@@ -73,6 +75,8 @@ public static class ProjectStore
     public static void Save(ProjectDocument project, string path)
     {
         TimelineRules.Validate(project);
+        if (!ProjectFile.IsProjectPath(path))
+            throw new InvalidDataException("Only .dubdeck project files are supported.");
         var fullPath = Path.GetFullPath(path);
         var folder = Path.GetDirectoryName(fullPath)!;
         var stored = new StoredProject
@@ -82,7 +86,6 @@ public static class ProjectStore
             PlayheadMs = Math.Clamp(project.PlayheadMs, 0, TimelineRules.Duration(project)),
             MasterVolume = project.MasterVolume,
             MasterMuted = project.MasterMuted,
-            AutoLevelEnabled = project.AutoLevelEnabled,
             AutoDuckingEnabled = project.AutoDuckingEnabled,
             DuckAmount = project.DuckAmount,
             Tracks = project.Tracks,
@@ -160,31 +163,47 @@ public static class ProjectStore
     private sealed class StoredProject
     {
         public StoredProject() { }
+        [JsonRequired]
         public int Version { get; set; }
+        [JsonRequired]
         public string? Name { get; set; }
+        [JsonRequired]
         public long PlayheadMs { get; set; }
-        public int MasterVolume { get; set; } = 100;
+        [JsonRequired]
+        public int MasterVolume { get; set; }
+        [JsonRequired]
         public bool MasterMuted { get; set; }
-        public bool AutoLevelEnabled { get; set; }
+        [JsonRequired]
         public bool AutoDuckingEnabled { get; set; }
-        public int DuckAmount { get; set; } = 30;
+        [JsonRequired]
+        public int DuckAmount { get; set; }
+        [JsonRequired]
         public List<StoredAsset>? Assets { get; set; }
+        [JsonRequired]
         public List<TimelineTrack>? Tracks { get; set; }
+        [JsonRequired]
         public List<TimelineClip>? Clips { get; set; }
     }
 
     private sealed class StoredAsset
     {
         public StoredAsset() { }
+        [JsonRequired]
         public string? Id { get; set; }
+        [JsonRequired]
         public string? Name { get; set; }
         public string? RelativePath { get; set; }
         public string? AbsolutePath { get; set; }
+        [JsonRequired]
         public long DurationMs { get; set; }
+        [JsonRequired]
         public bool HasVideo { get; set; }
+        [JsonRequired]
         public bool HasAudio { get; set; }
-        public SubtitleMode Subtitles { get; set; } = SubtitleMode.Auto;
-        public int SubtitleTrackIndex { get; set; } = -1;
+        [JsonRequired]
+        public SubtitleMode Subtitles { get; set; }
+        [JsonRequired]
+        public int SubtitleTrackIndex { get; set; }
         public string? SubtitleAbsolutePath { get; set; }
         public string? SubtitleRelativePath { get; set; }
     }

@@ -7,18 +7,16 @@ public sealed class AudioWaveform
     private readonly ushort[] _peaks;
     private readonly ushort[] _tree;
     private readonly int _leafCount;
-    public AudioLevelProfile? Levels { get; }
     public long DurationMs { get; }
     public long BinDurationMs { get; }
     public int BinCount => _peaks.Length;
     public ReadOnlySpan<ushort> Peaks => _peaks;
 
-    public AudioWaveform(long durationMs, long binDurationMs, ReadOnlySpan<ushort> peaks, AudioLevelProfile? levels = null)
+    public AudioWaveform(long durationMs, long binDurationMs, ReadOnlySpan<ushort> peaks)
     {
         if (durationMs <= 0 || binDurationMs <= 0 || peaks.Length is < 1 or > MaximumBins ||
             Math.Ceiling(durationMs / (double)binDurationMs) != peaks.Length)
             throw new ArgumentException("Invalid waveform dimensions.");
-        Levels = levels;
         DurationMs = durationMs;
         BinDurationMs = binDurationMs;
         _peaks = peaks.ToArray();
@@ -52,7 +50,6 @@ public sealed class AudioWaveform
 /// <summary>Combines signed PCM channels into peaks without retaining decoded samples.</summary>
 public sealed class AudioWaveformBuilder
 {
-    private readonly AudioLevelAnalyzer _levels = new();
     private readonly long _durationMs, _binMs;
     private readonly ushort[] _peaks;
     public AudioWaveformBuilder(long durationMs)
@@ -67,7 +64,6 @@ public sealed class AudioWaveformBuilder
     {
         if (sampleRate <= 0 || channels <= 0 || samples.Length % channels != 0 || !double.IsFinite(startMs))
             throw new ArgumentException("Invalid waveform PCM block.");
-        _levels.AddSamples(samples, sampleRate, channels);
         for (int frame = 0; frame < samples.Length / channels; frame++)
         {
             double time = startMs + frame * (1000d / sampleRate);
@@ -80,5 +76,5 @@ public sealed class AudioWaveformBuilder
             _peaks[bin] = (ushort)peak;
         }
     }
-    public AudioWaveform Build() => new(_durationMs, _binMs, _peaks, _levels.Build());
+    public AudioWaveform Build() => new(_durationMs, _binMs, _peaks);
 }

@@ -11,10 +11,9 @@ namespace DubDeck.App.Media;
 /// <summary>One silent background decoder at a time; all commands and disposal run off native callbacks.</summary>
 public sealed class WaveformService : IAsyncDisposable
 {
-    private const int CacheMagic = 0x56535732; // VSW2 adds full-rate audio level statistics.
+    private const int CacheMagic = 0x56535731; // Waveform-only payload.
     private readonly LibVLC _engine;
     private readonly string _cacheDirectory;
-    private readonly string[] _legacyCacheDirectories;
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly CancellationTokenSource _lifetime = new();
     private int _disposed, _decodeCount, _activeDecodes;
@@ -23,15 +22,10 @@ public sealed class WaveformService : IAsyncDisposable
     public int DecodeCount => Volatile.Read(ref _decodeCount);
     public int ActiveDecodes => Volatile.Read(ref _activeDecodes);
 
-    public WaveformService(LibVLC engine, string? cacheDirectory = null, string? legacyCacheDirectory = null)
+    public WaveformService(LibVLC engine, string? cacheDirectory = null)
     {
         _engine = engine;
         _cacheDirectory = cacheDirectory ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "DubDeck", "Waveforms", "v2");
-        _legacyCacheDirectories = legacyCacheDirectory is not null ? [legacyCacheDirectory] :
-            cacheDirectory is null ?
-                [Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "DubDeck", "Waveforms", "v1"),
-                 Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "DubSync", "Waveforms", "v1"),
-                 Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "VideoSync", "Waveforms", "v1")] : [];
     }
 
     public Task<AudioWaveform?> GetAsync(string path, long durationMs, CancellationToken cancellationToken = default) =>
@@ -50,13 +44,7 @@ public sealed class WaveformService : IAsyncDisposable
                     modified.ToString(CultureInfo.InvariantCulture), durationMs.ToString(CultureInfo.InvariantCulture));
                 string cache = Path.Combine(_cacheDirectory, Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(identity))) + ".wave");
                 var stored = ReadCache(cache, durationMs);
-                foreach (string legacyDirectory in _legacyCacheDirectories)
-                {
-                    if (stored is not null) break;
-                    stored = ReadCache(Path.Combine(legacyDirectory, Path.GetFileName(cache)), durationMs);
-                    if (stored?.Levels is not null) WriteCache(cache, stored);
-                }
-                if (stored?.Levels is not null) return stored;
+                if (stored is not null) return stored;
                 Interlocked.Increment(ref _decodeCount);
                 Interlocked.Increment(ref _activeDecodes);
                 AudioWaveform waveform;
@@ -77,14 +65,13 @@ public sealed class WaveformService : IAsyncDisposable
             using var stream = File.OpenRead(path);
             using var reader = new BinaryReader(stream);
             int magic = reader.ReadInt32();
-            if (magic != CacheMagic && magic != 0x56535731 || reader.ReadInt64() != durationMs) return null;
+            if (magic != CacheMagic || reader.ReadInt64() != durationMs) return null;
             long binMs = reader.ReadInt64();
             int count = reader.ReadInt32();
-            if (count is < 1 or > AudioWaveform.MaximumBins || stream.Length != 24L + count * 2L + (magic == CacheMagic ? 16 : 0)) return null;
+            if (count is < 1 or > AudioWaveform.MaximumBins || stream.Length != 24L + count * 2L) return null;
             var peaks = new ushort[count];
             for (int i = 0; i < count; i++) peaks[i] = reader.ReadUInt16();
-            var levels = magic == CacheMagic ? new AudioLevelProfile(reader.ReadDouble(), reader.ReadDouble()) : null;
-            return new(durationMs, binMs, peaks, levels);
+            return new(durationMs, binMs, peaks);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException) { return null; }
     }
@@ -101,7 +88,6 @@ public sealed class WaveformService : IAsyncDisposable
                 writer.Write(CacheMagic); writer.Write(waveform.DurationMs);
                 writer.Write(waveform.BinDurationMs); writer.Write(waveform.BinCount);
                 foreach (ushort peak in waveform.Peaks) writer.Write(peak);
-                writer.Write(waveform.Levels!.LoudLevelDb); writer.Write(waveform.Levels.PeakDb);
             }
             File.Move(temporary, path, overwrite: true);
         }

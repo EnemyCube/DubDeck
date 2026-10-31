@@ -47,7 +47,11 @@ foreach ($size in $sizes) {
         $encoder.Save($stream)
         $bytes = $stream.ToArray()
         $images.Add($bytes)
-        if ($size -eq 256) { [IO.File]::WriteAllBytes((Join-Path $assetFolder 'DubDeck.png'),$bytes) }
+        if ($size -eq 256) {
+            $previewFolder = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../artifacts/icon-preview'))
+            New-Item -ItemType Directory -Path $previewFolder -Force | Out-Null
+            [IO.File]::WriteAllBytes((Join-Path $previewFolder 'DubDeck.png'),$bytes)
+        }
     } finally { $stream.Dispose() }
 }
 $iconStream = [IO.File]::Create((Join-Path $assetFolder 'DubDeck.ico'))

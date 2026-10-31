@@ -36,19 +36,7 @@ public partial class MainWindow
                 "Theme selection uses an accessible palette icon button");
             Check(_project.DuckAmount == 30 && _duckControls.All(w => w.Amount.Value == 30 && w.Value.Text == "30%"),
                 "New projects start with 30% ducking in every mixer");
-            Check(Timeline.Scale == 5 && ZoomLabel.Text == "10%", "The timeline starts at 10% zoom");
-            Check(_project.AutoLevelEnabled && _autoLevelControls.Count == 3 && _autoLevelControls.All(c => c.IsChecked == true),
-                "New projects enable Auto level in the workspace and both fullscreen mixers");
-            _autoLevelControls[1].IsChecked = false;
-            _autoLevelControls[1].RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
-            await _playback.GetSubtitlesAsync();
-            Check(!_project.AutoLevelEnabled && _autoLevelControls.All(c => c.IsChecked == false),
-                "Disabling Auto level synchronizes all mixers");
-            _autoLevelControls[0].IsChecked = true;
-            _autoLevelControls[0].RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
-            await _playback.GetSubtitlesAsync();
-            Check(_project.AutoLevelEnabled && _autoLevelControls.All(c => c.IsChecked == true),
-                "Auto level can be re-enabled without changing track faders");
+            Check(Timeline.Scale == 2.5 && ZoomLabel.Text == "5%", "The timeline starts at 5% zoom");
             Check(EmptyTimelineOverlay.IsVisible, "Empty timelines display the drag-and-drop/import prompt");
             await ToggleSubtitlesMenuAsync(SubtitlesButton);
             await Task.Delay(120);
@@ -259,7 +247,7 @@ public partial class MainWindow
             await _playback.StopAsync();
             ApplyTrackPositions();
             Check(_project.Clips.First(c=>c.TrackId==mixerTrack.Id).StartMs == shiftedStart, "Stop preserves the pause-created timeline placement");
-            string alignmentSave = Path.Combine(directory,"alignment.videosync");
+            string alignmentSave = Path.Combine(directory,"alignment.dubdeck");
             ProjectStore.Save(_project,alignmentSave);
             Check(ProjectStore.Load(alignmentSave).Clips.First(c=>c.TrackId==mixerTrack.Id).StartMs == shiftedStart,"Pause alignment is saved in the project");
             QueueSeek(5000); await Task.Delay(600);
@@ -307,18 +295,18 @@ public partial class MainWindow
             ToggleFullscreen();
             await Task.Delay(200);
             Check(Header.Visibility == Visibility.Visible && WindowStyle == WindowStyle.SingleBorderWindow, "Escape-style fullscreen exit restores the workspace");
-            string save = Path.Combine(directory, "roundtrip.videosync");
+            string save = Path.Combine(directory, "roundtrip.dubdeck");
             long savedPosition = _playback.PositionMs;
             _projectPath=save;
             Check(SaveProject(false),"Save captures the current playhead position");
             var loaded = ProjectStore.Load(save);
             Check(loaded.Clips.Count == _project.Clips.Count && loaded.MasterVolume == _project.MasterVolume && loaded.PlayheadMs==savedPosition && loaded.Name=="video", "Project round trip preserves the video title, arrangement, volume, and playhead");
-            string brandedSave = Path.Combine(directory, "roundtrip.dubdeck");
+            string brandedSave = Path.Combine(directory, "reopened.dubdeck");
             ProjectStore.Save(loaded, brandedSave);
             await OpenProjectAsync(brandedSave);
             Check(_projectPath == brandedSave && _project.Clips.Count == loaded.Clips.Count &&
                 Math.Abs(_playback.PositionMs - savedPosition) < 100,
-                "DubDeck projects open with the same arrangement and saved playhead as legacy projects");
+                "Reopening a DubDeck project restores its arrangement and saved playhead");
             File.Delete(disposableVideo);
             await NewProjectAsync();
             Check(_project.Clips.Count == 0 && _playback.PositionMs == 0, "New clears the arrangement and resets transport");
@@ -355,6 +343,16 @@ public partial class MainWindow
             Check(_full && !_subtitleMenuOpen && subtitleEscape.Handled,
                 "Escape dismisses subtitles before leaving fullscreen");
             ToggleFullscreen();
+            // An unowned WPF helper window must not keep the process alive after
+            // the main window has finished its asynchronous media cleanup.
+            var shutdownCompanion = new Window { ShowInTaskbar = false, ShowActivated = false,
+                Title = "Shutdown regression auxiliary window" };
+            Check(Application.Current.Windows.Cast<Window>().Contains(shutdownCompanion),
+                "Shutdown coverage retains an auxiliary WPF window until the main window closes");
+            File.WriteAllText(Path.Combine(directory, "shutdown-windows.json"), JsonSerializer.Serialize(
+                Application.Current.Windows.Cast<Window>().Select(window => new {
+                    type = window.GetType().FullName, window.IsVisible, main = ReferenceEquals(window, this)
+                })));
             File.WriteAllText(Path.Combine(directory, "result.json"), JsonSerializer.Serialize(new { success = true, checks, nativeVideoScreenshot = false }, new JsonSerializerOptions { WriteIndented = true }));
             _dirty = false;
             Close();

@@ -39,7 +39,7 @@ public partial class MainWindow : Window
         _startupPath = startupPath;
         _engine = new MediaEngine();
         _waveforms = new WaveformService(_engine.LibVLC);
-        _playback = new PlaybackController(_engine, enableDiagnostics: App.SmokeTestDirectory is not null || App.PerformanceTestDirectory is not null, simulateVideoStartupStall: App.SimulateVideoStartupStall, analysisService: _waveforms);
+        _playback = new PlaybackController(_engine, enableDiagnostics: App.SmokeTestDirectory is not null || App.PerformanceTestDirectory is not null, simulateVideoStartupStall: App.SimulateVideoStartupStall);
         VideoHost.MediaPlayer = _playback.VideoPlayer;
         _playback.StatusChanged += status => { if (!_closing) Volatile.Write(ref _latestStatus, status); };
         _uiTimer = new System.Windows.Threading.DispatcherTimer(System.Windows.Threading.DispatcherPriority.Background, Dispatcher) { Interval = TimeSpan.FromMilliseconds(100) };
@@ -463,7 +463,7 @@ public partial class MainWindow : Window
     private async void OpenClicked(object sender, RoutedEventArgs e)
     {
         if (!ConfirmDiscard()) return;
-        var dialog = new OpenFileDialog { Title = "Open DubDeck project", Filter = "DubDeck projects|*.dubdeck;*.videosync;*.dubsync|All files|*.*" };
+        var dialog = new OpenFileDialog { Title = "Open DubDeck project", Filter = "DubDeck projects|*.dubdeck" };
         if (dialog.ShowDialog(this) == true) await SafeAsync(() => OpenProjectAsync(dialog.FileName));
     }
     private async Task OpenProjectAsync(string path)

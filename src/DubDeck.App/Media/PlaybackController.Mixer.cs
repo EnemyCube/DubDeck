@@ -126,7 +126,7 @@ public sealed partial class PlaybackController
         _duckStamp = now;
         bool voice = Slots().Any(slot => slot.Running && slot.Meter is not null && !slot.MeterPending &&
             _project.Tracks.TryGetValue(slot.TrackId, out var track) && track.Voice && !track.Muted && track.Volume > 0 &&
-            slot.Meter.LevelDb + LevelGainDb(slot) + 60 * Math.Log10(track.Volume / 100d) >= -40);
+            slot.Meter.LevelDb + 60 * Math.Log10(track.Volume / 100d) >= -40);
         _ducking.Update(_project.DuckingEnabled, voice, _project.DuckAmount, dt);
         ApplyVolumes();
     }

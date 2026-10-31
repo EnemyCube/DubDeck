@@ -3,17 +3,16 @@ using DubDeck.Core;
 
 var tests = new (string Name, Action Run)[]
 {
-    ("DubDeck projects retain compatibility with existing project files", BrandedProjects),
+    ("Only current DubDeck project files can be saved and loaded", BrandedProjects),
     ("Waveform peaks preserve silence, timing, and both signed PCM channels", WaveformPeaks),
     ("Waveform range queries retain brief transients at every zoom", WaveformRanges),
     ("Waveform memory stays bounded for very long sources", WaveformBounds),
-    ("Saved playhead round-trips, clamps, and defaults for older projects", PlayheadPersistence),
+    ("Saved playhead round-trips, clamps, and rejects missing fields", PlayheadPersistence),
     ("New projects enable ducking with Audio 1 as the default Voice source", DefaultDucking),
     ("Voice ducking smooths, holds, and releases", Ducking),
     ("Ducking preserves quiet target passages and follows their mix level", QuietDucking),
     ("Ducking preferences save while runtime pause does not", DuckPreferences),
-    ("Auto level matches loud passages, preserves dynamics and leaves peak headroom", LevelMatching),
-    ("Auto level defaults, opt-out and legacy projects round-trip", LevelPreferences),
+    ("Project files reject obsolete and unknown settings", StrictProjectSettings),
     ("Empty projects have zero duration", EmptyProject),
     ("Active scheduling uses exclusive ends and includes audio past video", ActiveScheduling),
     ("Video gaps have no active video", VideoGaps),
@@ -193,7 +192,7 @@ static void RoundTrip()
     using var files = new TestFiles();
     files.Write("Picture.mp4");
     files.Write("Music.wav");
-    var path = Path.Combine(files.Folder, "Example.videosync");
+    var path = Path.Combine(files.Folder, "Example.dubdeck");
     var project = Fixture(files.Folder);
     project.Name = "Example \u2014 \u97F3\u697D";
     project.MasterVolume = 81;
@@ -230,9 +229,9 @@ static void PortablePaths()
     Directory.CreateDirectory(original);
     File.WriteAllText(Path.Combine(original, "Picture.mp4"), "fixture");
     File.WriteAllText(Path.Combine(original, "Music.wav"), "fixture");
-    ProjectStore.Save(Fixture(original), Path.Combine(original, "Project.videosync"));
+    ProjectStore.Save(Fixture(original), Path.Combine(original, "Project.dubdeck"));
     Directory.Move(original, moved);
-    var loaded = ProjectStore.Load(Path.Combine(moved, "Project.videosync"));
+    var loaded = ProjectStore.Load(Path.Combine(moved, "Project.dubdeck"));
     Equal(Path.Combine(moved, "Picture.mp4"), loaded.Assets[0].FilePath);
     False(loaded.Assets[0].IsOffline);
 }
@@ -242,11 +241,11 @@ static void AbsoluteFallback()
     using var files = new TestFiles();
     files.Write("Picture.mp4");
     files.Write("Music.wav");
-    var path = Path.Combine(files.Folder, "Project.videosync");
+    var path = Path.Combine(files.Folder, "Project.dubdeck");
     ProjectStore.Save(Fixture(files.Folder), path);
     var moved = Path.Combine(files.Folder, "moved");
     Directory.CreateDirectory(moved);
-    var movedPath = Path.Combine(moved, "Project.videosync");
+    var movedPath = Path.Combine(moved, "Project.dubdeck");
     File.Move(path, movedPath);
     var loaded = ProjectStore.Load(movedPath);
     Equal(Path.Combine(files.Folder, "Picture.mp4"), loaded.Assets[0].FilePath);
@@ -256,7 +255,7 @@ static void AbsoluteFallback()
 static void OfflineRelinking()
 {
     using var files = new TestFiles();
-    var projectPath = Path.Combine(files.Folder, "Offline.videosync");
+    var projectPath = Path.Combine(files.Folder, "Offline.dubdeck");
     ProjectStore.Save(Fixture(files.Folder), projectPath);
     var loaded = ProjectStore.Load(projectPath);
     True(loaded.Assets.All(asset => asset.IsOffline));
@@ -274,7 +273,7 @@ static void OfflineRelinking()
 static void InvalidFiles()
 {
     using var files = new TestFiles();
-    var path = Path.Combine(files.Folder, "Invalid.videosync");
+    var path = Path.Combine(files.Folder, "Invalid.dubdeck");
     foreach (var content in new[] { "{", "null", "{}", "{\"version\":999}", "{\"version\":1,\"tracks\":null}" })
     {
         File.WriteAllText(path, content);
@@ -334,7 +333,7 @@ static void SubtitlePreferences()
     var asset = project.Assets[0];
     asset.Subtitles = SubtitleMode.External;
     asset.SubtitleFilePath = Path.Combine(files.Folder, "Picture.en.srt");
-    string path = Path.Combine(files.Folder, "Subs.videosync");
+    string path = Path.Combine(files.Folder, "Subs.dubdeck");
     ProjectStore.Save(project, path);
     var loaded = ProjectStore.Load(path);
     Equal(SubtitleMode.External, loaded.Assets[0].Subtitles);
@@ -387,61 +386,26 @@ static void QuietDucking()
     for (int i = 0; i < 15; i++) envelope.Update(false, true, 100, .04);
     True(Math.Abs(envelope.GainAtLevel(-12, 100) - 1) < .001);
 }
-static void LevelMatching()
-{
-    AudioLevelProfile Analyze(short loud)
-    {
-        var analyzer = new AudioLevelAnalyzer();
-        var silence = new short[1600];
-        for (int i = 0; i < 10; i++) analyzer.AddSamples(silence, 1000, 2);
-        foreach (short amplitude in new short[] { loud, (short)(loud / 20), loud, loud })
-        {
-            var block = new short[800];
-            for (int frame = 0; frame < 400; frame++) { block[frame * 2] = amplitude; block[frame * 2 + 1] = (short)-amplitude; }
-            analyzer.AddSamples(block, 1000, 2);
-        }
-        return analyzer.Build();
-    }
-    var loud = Analyze(8192);
-    var soft = Analyze(2048);
-    True(Math.Abs(loud.LoudLevelDb + loud.GainDb - (-20)) < .01);
-    True(Math.Abs(soft.LoudLevelDb + soft.GainDb - (-20)) < .01);
-    True(loud.Gain < 1 && soft.Gain > 1);
-    True(Math.Abs(Math.Pow(loud.PlayerVolumeScale, 3) - loud.Gain) < .00001);
-    True(Math.Abs(Math.Pow(soft.PlayerVolumeScale, 3) - soft.Gain) < .00001);
-    // One constant gain leaves the 20:1 dialogue/whisper ratio intact.
-    True(Math.Abs((.25 * loud.Gain) / (.0125 * loud.Gain) - 20) < .00001);
-    var transient = new AudioLevelProfile(-30, -1);
-    True(transient.PeakDb + transient.GainDb <= -3 + .001);
-    True(new AudioLevelProfile(-45, -40).GainDb <= 12 + .001);
-    var silenceProfile = new AudioLevelAnalyzer().Build();
-    Equal(1d, silenceProfile.Gain);
-    Throws<ArgumentException>(() => new AudioLevelProfile(double.NaN, -1));
-    Throws<ArgumentException>(() => new AudioLevelProfile(-5, -10));
-}
-static void LevelPreferences()
+static void StrictProjectSettings()
 {
     using var files = new TestFiles();
     var project = Fixture(files.Folder);
-    True(project.AutoLevelEnabled);
-    var path = Path.Combine(files.Folder, "Levels.dubdeck");
-    project.AutoLevelEnabled = false;
+    var path = Path.Combine(files.Folder, "Settings.dubdeck");
     ProjectStore.Save(project, path);
-    False(ProjectStore.Load(path).AutoLevelEnabled);
-    project.AutoLevelEnabled = true;
-    ProjectStore.Save(project, path);
-    True(ProjectStore.Load(path).AutoLevelEnabled);
-    var json = JsonNode.Parse(File.ReadAllText(path))!;
-    json.AsObject().Remove("autoLevelEnabled");
-    File.WriteAllText(path, json.ToJsonString());
-    False(ProjectStore.Load(path).AutoLevelEnabled);
-    True(project.Tracks.All(track => track.Volume == 100));
+    string valid = File.ReadAllText(path);
+    foreach (string setting in new[] { "autoLevelEnabled", "unknownSetting" })
+    {
+        var json = JsonNode.Parse(valid)!;
+        json[setting] = true;
+        File.WriteAllText(path, json.ToJsonString());
+        Throws<InvalidDataException>(() => ProjectStore.Load(path));
+    }
 }
 static void DuckPreferences()
 {
     var project=Fixture(); project.AutoDuckingEnabled=true; project.DuckAmount=73;
     project.Tracks[1].IsDuckingSource=true; project.Tracks[1].IsPaused=true;
-    var path=Path.Combine(Path.GetTempPath(),Guid.NewGuid()+".videosync");
+    var path=Path.Combine(Path.GetTempPath(),Guid.NewGuid()+".dubdeck");
     try {
         ProjectStore.Save(project,path); var loaded=ProjectStore.Load(path);
         if(!loaded.AutoDuckingEnabled||loaded.DuckAmount!=73||!loaded.Tracks[1].IsDuckingSource||loaded.Tracks[1].IsPaused)
@@ -462,7 +426,7 @@ static void DefaultDucking()
     project.AddAudioTrack();
     False(project.AutoDuckingEnabled); False(first.IsDuckingSource);
     using var files = new TestFiles();
-    var path = Path.Combine(files.Folder,"Defaults.videosync");
+    var path = Path.Combine(files.Folder,"Defaults.dubdeck");
     ProjectStore.Save(project,path);
     var loaded = ProjectStore.Load(path);
     False(loaded.AutoDuckingEnabled); False(loaded.Tracks[1].IsDuckingSource);
@@ -473,18 +437,18 @@ static void DefaultDucking()
     Equal(60, ProjectStore.Load(path).DuckAmount);
     json.AsObject().Remove("duckAmount");
     File.WriteAllText(path, json.ToJsonString());
-    Equal(30, ProjectStore.Load(path).DuckAmount);
+    Throws<InvalidDataException>(() => ProjectStore.Load(path));
 }
 static void PlayheadPersistence()
 {
     using var files=new TestFiles();
     var project=Fixture(files.Folder); project.PlayheadMs=750;
-    var path=Path.Combine(files.Folder,"Playhead.videosync");
+    var path=Path.Combine(files.Folder,"Playhead.dubdeck");
     ProjectStore.Save(project,path);
     Equal(750L,ProjectStore.Load(path).PlayheadMs);
     var json=JsonNode.Parse(File.ReadAllText(path))!;
     json.AsObject().Remove("playheadMs"); File.WriteAllText(path,json.ToJsonString());
-    Equal(0L,ProjectStore.Load(path).PlayheadMs);
+    Throws<InvalidDataException>(() => ProjectStore.Load(path));
     json["playheadMs"]=long.MaxValue; File.WriteAllText(path,json.ToJsonString());
     Equal(TimelineRules.Duration(project),ProjectStore.Load(path).PlayheadMs);
     project.PlayheadMs=long.MaxValue; ProjectStore.Save(project,path);
@@ -533,21 +497,26 @@ static void WaveformBounds()
 static void BrandedProjects()
 {
     True(ProjectFile.Extension == ".dubdeck");
-    foreach (string extension in new[] { ".dubdeck", ".DUBDECK", ".videosync", ".VIDEOSYNC", ".dubsync" })
-        True(ProjectFile.IsProjectPath("A project" + extension), "Project detection rejected " + extension);
+    foreach (string extension in new[] { ".dubdeck", ".DUBDECK" })
+        True(ProjectFile.IsProjectPath("A project" + extension));
     False(ProjectFile.IsProjectPath("movie.mp4"));
     using var files = new TestFiles();
     var document = Fixture(files.Folder);
     document.PlayheadMs = 750;
-    string legacy = Path.Combine(files.Folder, "Original.videosync");
-    string branded = Path.Combine(files.Folder, "Renamed.dubdeck");
-    ProjectStore.Save(document, legacy);
-    ProjectStore.Save(ProjectStore.Load(legacy), branded);
-    var loaded = ProjectStore.Load(branded);
-    Equal(document.Version, loaded.Version);
+    string current = Path.Combine(files.Folder, "Current.dubdeck");
+    ProjectStore.Save(document, current);
+    foreach (string extension in new[] { ".videosync", ".VIDEOSYNC", ".dubsync", ".json" })
+    {
+        string unsupported = Path.Combine(files.Folder, "Unsupported-" + Guid.NewGuid().ToString("N") + extension);
+        False(ProjectFile.IsProjectPath(unsupported));
+        File.Copy(current, unsupported);
+        Throws<InvalidDataException>(() => ProjectStore.Load(unsupported));
+        Throws<InvalidDataException>(() => ProjectStore.Save(document, unsupported));
+        Equal(File.ReadAllText(current), File.ReadAllText(unsupported));
+    }
+    var loaded = ProjectStore.Load(current);
     Equal(document.Clips.Count, loaded.Clips.Count);
     Equal(750L, loaded.PlayheadMs);
-    Equal(document.Name, loaded.Name);
 }
 sealed class TestFiles : IDisposable
 {

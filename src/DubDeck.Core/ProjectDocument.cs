@@ -26,11 +26,15 @@ public sealed class TimelineTrack
 {
     [JsonRequired]
     public string Id { get; set; } = Guid.NewGuid().ToString();
+    [JsonRequired]
     public string Name { get; set; } = "";
     [JsonRequired]
     public TrackKind Kind { get; set; }
+    [JsonRequired]
     public int Volume { get; set; } = 100;
+    [JsonRequired]
     public bool IsMuted { get; set; }
+    [JsonRequired]
     public bool IsDuckingSource { get; set; }
     [JsonIgnore]
     public bool IsPaused { get; set; }
@@ -40,7 +44,9 @@ public sealed class TimelineClip
 {
     [JsonRequired]
     public string Id { get; set; } = Guid.NewGuid().ToString();
+    [JsonRequired]
     public string AssetId { get; set; } = "";
+    [JsonRequired]
     public string TrackId { get; set; } = "";
     [JsonRequired]
     public long StartMs { get; set; }
@@ -53,7 +59,6 @@ public sealed class ProjectDocument
     public long PlayheadMs { get; set; }
     public int MasterVolume { get; set; } = 100;
     public bool MasterMuted { get; set; }
-    public bool AutoLevelEnabled { get; set; } = true;
     public bool AutoDuckingEnabled { get; set; } = true;
     public int DuckAmount { get; set; } = 30;
     public List<MediaAsset> Assets { get; set; } = [];
