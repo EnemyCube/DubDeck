@@ -1,6 +1,6 @@
 # DubDeck 1.8.2 validation
 
-Built and validated locally on Windows 11 x64 on 2026-10-31 (America/Toronto), from a34fa3ae074b1e8b1d0089c3cb173f2667c2d4d5 with the release version set to 1.8.2. Nothing was pushed, tagged or published to GitHub.
+Built and validated locally on Windows 11 x64 on 2026-10-31 (America/Toronto), from a34fa3ae074b1e8b1d0089c3cb173f2667c2d4d5 with the release version set to 1.8.2. Published to GitHub on 2026-10-31 as [DubDeck 1.8.2](https://github.com/EnemyCube/DubDeck/releases/tag/v1.8.2), tagged at c2841f4201ad26ba8d204b032f02099f8494dc57. The main branch and release tag are pushed; this is the latest release.
 
 ## Release contents
 
@@ -43,3 +43,7 @@ One obsolete build remains: artifacts/DubDeck-1.9.0-Portable/DubDeck-1.9.0-win.x
 artifacts/release-1.8.2-validation/ contains build/publish/core/native logs, native-media.json, folder-workflow/, portable-workflow/, folder-performance/, test-summary.json, versions.json, bundled-documents.json, source-files.json, packages.json, SHA256SUMS.txt and cleanup-summary.json. prior-validation.md preserves the previous development/release validation record. Staging paths and bundle extraction locations in historical evidence were removed during cleanup.
 
 Rebuild with scripts/Build.ps1 -Publish or -Portable. See scripts/Release-Tools.md for packaging and validation helpers.
+
+## GitHub publication
+
+The portable EXE, folder ZIP and SHA256SUMS.txt are published with the release. GitHub-reported SHA-256 digests and sizes match the validated local assets. The public latest-release API and final download URLs were checked after publication. Details are recorded in artifacts/release-1.8.2-validation/github-release.json.
