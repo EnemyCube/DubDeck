@@ -1,42 +1,53 @@
-# DubDeck 1.8.1 validation
+# DubDeck 1.8.2 validation
 
-Validated on Windows 11 x64 on 2026-10-26 (America/Toronto).
+Validated locally on Windows 11 x64 on 2026-10-31 (America/Toronto). This release has not been published to GitHub.
 
-Application source commit: 117a439d28f6ea6469aab72751d96b6e185edf2c. Both editions report ProductVersion 1.8.1 with this source revision and FileVersion 1.8.1.0.
+Application source commit: 8018f14b7cd6705744474e096be5eb1a35607d72. Both editions report ProductVersion 1.8.2 with this source revision and FileVersion 1.8.2.0.
+
+## Changes
+
+- Fullscreen hides the cursor with its playback controls and restores it on mouse movement or exit.
+- New windows start the timeline at 10% zoom.
+- Native Windows media keys work while DubDeck has focus, including fullscreen and video/audio-only transitions. Held Play/Pause keys do not repeatedly toggle playback.
+- Quiet non-Voice audio, including whispered video dialogue, retains its mix level during commentary. Louder passages receive up to the selected duck amount.
+- Quiet protection uses pre-duck RMS levels after the track volume control: no reduction at or below -30 dBFS, transitioning to the selected amount at -24 dBFS. Commentary activation retains its existing threshold.
+- Commentary mute and removal of the Voice designation retain the smooth ducking release.
 
 ## Results
 
-- Release solution builds: zero warnings and errors.
-- Core: 21/21 scenarios passed, including the 30% ducking default, preserved explicit saved amounts, and fallback for projects without a stored amount.
-- Native media: 13/13 checks passed across MP4, MOV, MKV, MP3, WAV, M4A and FLAC, including waveform generation, playback, seeking, subtitles, track pause/resume, volume/mute and voice ducking.
-- Folder edition: 216/216 desktop workflow checks passed; normal shutdown completed in 705 ms.
-- Folder performance: 13/13 checks passed with 10,042 clips, actual playback, decoder-startup fallback, dragging, voice analysis and repeated close requests; normal shutdown completed in 96 ms.
-- Portable edition: 216/216 desktop workflow checks passed; normal shutdown completed in 81 ms.
-- Menu tests cover theme/subtitle button toggle logic, keyboard activation and Escape, including timeline, fullscreen video and fullscreen audio-only controls.
-- Media-control tests cover Windows media commands, routed media-key input, 10-second skips and timeline bounds, repeated Play/Pause, Stop confirmation, focus restrictions and fullscreen video/audio transitions.
-- All eight themes, saved preferences, live icon/timeline refresh, contrast, project round trips and existing playback/mixer behavior remain covered.
+- Release solution and both self-contained editions build successfully; the solution build reports zero warnings and errors.
+- Core: 22/22 scenarios passed, including quiet-passage protection, intermediate loudness, track mix levels, disabled ducking and the existing envelope behavior.
+- Native media: 14/14 checks passed across MP4, MOV, MKV, MP3, WAV, M4A and FLAC, including constant commentary over alternating loud and whisper-level video audio.
+- Folder edition: 226/226 desktop workflow checks passed; normal shutdown completed in 142 ms.
+- Portable edition: 226/226 desktop workflow checks passed; normal shutdown completed in 89 ms.
+- Folder performance: 13/13 checks passed with 10,042 clips, actual playback, simulated hardware-decoder startup fallback, dragging, voice analysis and repeated close requests. Normal shutdown completed in 209 ms.
 - Inspected rendered workspace and fullscreen track-control screenshots.
-- Portable bundle README, license, third-party notices, all bundled license texts and workspace image match the source.
-- Folder ZIP: all 1,666 entries passed CRC verification; executable, application DLL, README, licenses, notices, screenshot and native VLC files match the tested folder.
+- Both editions contain eight matching README, license, third-party notice, bundled license and workspace-image files. The portable bundle was extracted and inspected.
+- All 1,666 folder ZIP entries passed CRC verification and SHA-256 comparison with the tested folder edition.
 
-Generated fixture copies on the local disk were used for repeatable timing. The ten-minute soak was not repeated for this release.
+Generated fixtures were staged on the local disk for repeatable timing. The ten-minute soak was not repeated for this release.
 
-## Release assets
+## Local release assets
 
 | Asset | Bytes | SHA-256 |
 | --- | ---: | --- |
-| DubDeck-1.8.1-win.x64-portable.exe | 115501152 | 892317718aac9a41bc6adf01db0385bb7ef7c5c319594378c881479306983049 |
-| DubDeck-1.8.1-win-x64.zip | 214171104 | addd7c3e807beac338d4e0a1f3325b470c9b5f80fa628c5e0fdde0d95c5d37a2 |
+| DubDeck-1.8.2-win.x64-portable.exe | 115502765 | 5c6e4a0c5be5ffbd2fddaa41b984060d34456702c6e541e70ffba4ba00cb5db4 |
+| DubDeck-1.8.2-win-x64.zip | 214173193 | 1154e2f5362fe5fb3d3668aae8d68411d30a107e5bd6d799616c96fd0eefe17e |
 
-Folder DubDeck.dll SHA-256: 965f4739d0e901fab8540363e77deca58502b36009813351e3c4749cab7f32af.
+Folder DubDeck.dll SHA-256: 71bfa17bc78299dfc4044c0fb0e29c4233cc224f7e15f46dea9bcae313e46091.
 
 ## Local evidence
 
-- artifacts/media-test-results/media-20261026-152603.json
-- artifacts/release-1.8.1-validation/folder-workflow/
-- artifacts/release-1.8.1-validation/folder-performance/
-- artifacts/release-1.8.1-validation/portable-workflow/
-- artifacts/release-1.8.1-validation/SHA256SUMS.txt
-- Previous release validation: artifacts/validation-1.8.0.md
+- artifacts/release-1.8.2-validation/test-summary.json
+- artifacts/release-1.8.2-validation/native-media.json
+- artifacts/release-1.8.2-validation/folder-workflow/
+- artifacts/release-1.8.2-validation/folder-performance/
+- artifacts/release-1.8.2-validation/portable-workflow/
+- artifacts/release-1.8.2-validation/versions.json
+- artifacts/release-1.8.2-validation/bundled-documents.json
+- artifacts/release-1.8.2-validation/packages.json
+- artifacts/release-1.8.2-validation/SHA256SUMS.txt
+- artifacts/release-1.8.2-notes.md
+- Previous release validation: artifacts/validation-1.8.1.md
 
-Rebuild with scripts/Build.ps1 -Publish or scripts/Build.ps1 -Portable. Run packaged desktop coverage with scripts/Test-Desktop.ps1 and the desired ApplicationPath.
+Rebuild locally with scripts/Build.ps1 -Publish or scripts/Build.ps1 -Portable. Run packaged desktop coverage with scripts/Test-Desktop.ps1 and the desired ApplicationPath.

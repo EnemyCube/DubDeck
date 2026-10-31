@@ -11,7 +11,7 @@ namespace DubDeck.App.Media;
 /// <summary>One silent background decoder at a time; all commands and disposal run off native callbacks.</summary>
 public sealed class WaveformService : IAsyncDisposable
 {
-    private const int CacheMagic = 0x56535731; // VSW1 retained for existing waveform caches.
+    private const int CacheMagic = 0x56535732; // VSW2 adds full-rate audio level statistics.
     private readonly LibVLC _engine;
     private readonly string _cacheDirectory;
     private readonly string[] _legacyCacheDirectories;
@@ -26,10 +26,11 @@ public sealed class WaveformService : IAsyncDisposable
     public WaveformService(LibVLC engine, string? cacheDirectory = null, string? legacyCacheDirectory = null)
     {
         _engine = engine;
-        _cacheDirectory = cacheDirectory ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "DubDeck", "Waveforms", "v1");
+        _cacheDirectory = cacheDirectory ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "DubDeck", "Waveforms", "v2");
         _legacyCacheDirectories = legacyCacheDirectory is not null ? [legacyCacheDirectory] :
             cacheDirectory is null ?
-                [Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "DubSync", "Waveforms", "v1"),
+                [Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "DubDeck", "Waveforms", "v1"),
+                 Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "DubSync", "Waveforms", "v1"),
                  Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "VideoSync", "Waveforms", "v1")] : [];
     }
 
@@ -53,9 +54,9 @@ public sealed class WaveformService : IAsyncDisposable
                 {
                     if (stored is not null) break;
                     stored = ReadCache(Path.Combine(legacyDirectory, Path.GetFileName(cache)), durationMs);
-                    if (stored is not null) WriteCache(cache, stored);
+                    if (stored?.Levels is not null) WriteCache(cache, stored);
                 }
-                if (stored is not null) return stored;
+                if (stored?.Levels is not null) return stored;
                 Interlocked.Increment(ref _decodeCount);
                 Interlocked.Increment(ref _activeDecodes);
                 AudioWaveform waveform;
@@ -75,13 +76,15 @@ public sealed class WaveformService : IAsyncDisposable
         {
             using var stream = File.OpenRead(path);
             using var reader = new BinaryReader(stream);
-            if (reader.ReadInt32() != CacheMagic || reader.ReadInt64() != durationMs) return null;
+            int magic = reader.ReadInt32();
+            if (magic != CacheMagic && magic != 0x56535731 || reader.ReadInt64() != durationMs) return null;
             long binMs = reader.ReadInt64();
             int count = reader.ReadInt32();
-            if (count is < 1 or > AudioWaveform.MaximumBins || stream.Length != 24L + count * 2L) return null;
+            if (count is < 1 or > AudioWaveform.MaximumBins || stream.Length != 24L + count * 2L + (magic == CacheMagic ? 16 : 0)) return null;
             var peaks = new ushort[count];
             for (int i = 0; i < count; i++) peaks[i] = reader.ReadUInt16();
-            return new(durationMs, binMs, peaks);
+            var levels = magic == CacheMagic ? new AudioLevelProfile(reader.ReadDouble(), reader.ReadDouble()) : null;
+            return new(durationMs, binMs, peaks, levels);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException) { return null; }
     }
@@ -98,6 +101,7 @@ public sealed class WaveformService : IAsyncDisposable
                 writer.Write(CacheMagic); writer.Write(waveform.DurationMs);
                 writer.Write(waveform.BinDurationMs); writer.Write(waveform.BinCount);
                 foreach (ushort peak in waveform.Peaks) writer.Write(peak);
+                writer.Write(waveform.Levels!.LoudLevelDb); writer.Write(waveform.Levels.PeakDb);
             }
             File.Move(temporary, path, overwrite: true);
         }
@@ -147,7 +151,7 @@ public sealed class WaveformService : IAsyncDisposable
         {
             try
             {
-                if (token.IsCancellationRequested || bits != 16 || channels != 2 || rate != 8000) return;
+                if (token.IsCancellationRequested || bits != 16 || channels != 2 || rate != 48000) return;
                 int count = checked((int)size.ToUInt64() / 2);
                 if (samples.Length < count) samples = new short[count];
                 Marshal.Copy(pcm, samples, 0, count);
@@ -155,7 +159,7 @@ public sealed class WaveformService : IAsyncDisposable
                 builder.AddSamples(samples.AsSpan(0, count), (int)rate, (int)channels, (pts - firstPts.Value) / 1000d);
                 received = true;
                 Interlocked.Add(ref _decodedFrames, frames);
-                // Yield periodically; only this single low-resolution decoder runs in the background.
+                // Yield periodically; only this single background decoder runs in the background.
                 Thread.Yield();
             }
             catch (Exception ex) { completion.TrySetException(ex); }
@@ -168,7 +172,7 @@ public sealed class WaveformService : IAsyncDisposable
         long pre = Marshal.GetFunctionPointerForDelegate(before).ToInt64();
         long post = Marshal.GetFunctionPointerForDelegate(after).ToInt64();
         // VLC chain booleans use the no- prefix; time-sync=0 actually enables pacing.
-        media.AddOption(FormattableString.Invariant($":sout=#transcode{{acodec=s16l,channels=2,samplerate=8000,threads=1}}:smem{{audio-prerender-callback={pre},audio-postrender-callback={post},no-time-sync}}"));
+        media.AddOption(FormattableString.Invariant($":sout=#transcode{{acodec=s16l,channels=2,samplerate=48000,threads=1}}:smem{{audio-prerender-callback={pre},audio-postrender-callback={post},no-time-sync}}"));
         player.EndReached += (_, _) => completion.TrySetResult(true);
         player.EncounteredError += (_, _) => completion.TrySetException(new IOException("The audio waveform could not be decoded."));
         try

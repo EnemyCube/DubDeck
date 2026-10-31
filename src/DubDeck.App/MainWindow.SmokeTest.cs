@@ -37,6 +37,18 @@ public partial class MainWindow
             Check(_project.DuckAmount == 30 && _duckControls.All(w => w.Amount.Value == 30 && w.Value.Text == "30%"),
                 "New projects start with 30% ducking in every mixer");
             Check(Timeline.Scale == 5 && ZoomLabel.Text == "10%", "The timeline starts at 10% zoom");
+            Check(_project.AutoLevelEnabled && _autoLevelControls.Count == 3 && _autoLevelControls.All(c => c.IsChecked == true),
+                "New projects enable Auto level in the workspace and both fullscreen mixers");
+            _autoLevelControls[1].IsChecked = false;
+            _autoLevelControls[1].RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+            await _playback.GetSubtitlesAsync();
+            Check(!_project.AutoLevelEnabled && _autoLevelControls.All(c => c.IsChecked == false),
+                "Disabling Auto level synchronizes all mixers");
+            _autoLevelControls[0].IsChecked = true;
+            _autoLevelControls[0].RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+            await _playback.GetSubtitlesAsync();
+            Check(_project.AutoLevelEnabled && _autoLevelControls.All(c => c.IsChecked == true),
+                "Auto level can be re-enabled without changing track faders");
             Check(EmptyTimelineOverlay.IsVisible, "Empty timelines display the drag-and-drop/import prompt");
             await ToggleSubtitlesMenuAsync(SubtitlesButton);
             await Task.Delay(120);

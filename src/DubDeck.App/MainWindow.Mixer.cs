@@ -99,6 +99,7 @@ public partial class MainWindow
                 var value = new TextBlock { Width = 42, Margin = new Thickness(7,0,0,0), VerticalAlignment = VerticalAlignment.Center };
                 host.Children.Add(enabled); host.Children.Add(label); host.Children.Add(amount); host.Children.Add(value);
                 _duckControls.Add((enabled, amount, value));
+                AddAutoLevelControl(host);
                 enabled.Click += (_, _) => { if (_updating) return; _project.AutoDuckingEnabled = enabled.IsChecked == true; SyncDuckingControls(); TrackLevelChanged(); };
                 amount.ValueChanged += (_, e) => { if (_updating) return; _project.DuckAmount = (int)Math.Round(e.NewValue); SyncDuckingControls(); TrackLevelChanged(); };
             }
@@ -110,6 +111,7 @@ public partial class MainWindow
             widgets.Amount.Value = _project.DuckAmount;
             widgets.Value.Text = _project.DuckAmount + "%";
         }
+        SyncAutoLevelControls();
         _updating = previous;
     }
     private void TrackLevelChanged()

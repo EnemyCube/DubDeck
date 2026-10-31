@@ -12,7 +12,7 @@ public sealed record PlaybackStatus(long PositionMs, long DurationMs, bool IsPla
 public sealed record PlaybackDiagnostic(string ClipId, string TrackId, bool IsVideo,
     long TimelinePositionMs, long ExpectedMediaTimeMs, long NativeMediaTimeMs,
     long EstimatedMediaTimeMs, int Volume, bool IsMuted, string State,
-    int DecodedAudio, int DecodedVideo, int PlayedAudioBuffers, int DisplayedPictures, double? ActivityDb = null, long? MeterTimeMs = null);
+    int DecodedAudio, int DecodedVideo, int PlayedAudioBuffers, int DisplayedPictures, double? ActivityDb = null, long? MeterTimeMs = null, double LevelGainDb = 0);
 
 /// <summary>
 /// Serializes all transport and native player operations. The stopwatch advances only when all
@@ -56,9 +56,11 @@ public sealed partial class PlaybackController : IDisposable
     public event Action<PlaybackStatus>? StatusChanged;
     public event Action<bool>? VideoVisibilityChanged;
 
-    public PlaybackController(MediaEngine engine, bool enableDiagnostics = false, bool simulateVideoStartupStall = false)
+    public PlaybackController(MediaEngine engine, bool enableDiagnostics = false, bool simulateVideoStartupStall = false, WaveformService? analysisService = null)
     {
         _engine = engine;
+        _levelAnalysis = analysisService ?? new WaveformService(engine.LibVLC);
+        _ownsLevelAnalysis = analysisService is null;
         _enableDiagnostics = enableDiagnostics;
         _simulateVideoStartupStall = simulateVideoStartupStall;
         _video = new PlayerSlot(this, new MediaPlayer(engine.LibVLC), true, string.Empty);
@@ -89,6 +91,7 @@ public sealed partial class PlaybackController : IDisposable
             _trackDelays.Clear(); _committedShifts.Clear(); _alignmentGeneration++;
             foreach (var id in _pausedTracks.Keys.ToArray()) _pausedTracks[id] = _basePosition;
             _project = offlineAssetIds is not null ? snapshot : snapshot with { Assets = snapshot.Assets.ToDictionary(p => p.Key, p => p.Value with { Offline = !System.IO.File.Exists(p.Value.FilePath) }) };
+            _levelsPrepared = false;
             _trackEnds = _project.Clips.GroupBy(c => c.TrackId).ToDictionary(g => g.Key,
                 g => g.Max(c => c.StartMs + _project.Assets[c.AssetId].DurationMs));
             if (startPositionMs.HasValue) _basePosition = startPositionMs.Value;
@@ -162,17 +165,19 @@ public sealed partial class PlaybackController : IDisposable
     {
         var masterVolume = Math.Clamp(project.MasterVolume, 0, 100);
         var masterMuted = project.MasterMuted;
-        var ducking = project.AutoDuckingEnabled; var duckAmount = project.DuckAmount;
+        var ducking = project.AutoDuckingEnabled; var duckAmount = project.DuckAmount; var autoLevel = project.AutoLevelEnabled;
         var volumeTracks = project.Tracks.ToDictionary(track => track.Id,
             track => (Volume: Math.Clamp(track.Volume, 0, 100), Muted: track.IsMuted, Voice: track.IsDuckingSource));
-        return Enqueue(_ =>
+        return Enqueue(async token =>
         {
             var tracks = _project.Tracks.ToDictionary(pair => pair.Key, pair =>
                 volumeTracks.TryGetValue(pair.Key, out var settings)
                     ? pair.Value with { Volume = settings.Volume, Muted = settings.Muted, Voice = settings.Voice } : pair.Value);
-            _project = _project with { MasterVolume = masterVolume, MasterMuted = masterMuted, Tracks = tracks, DuckingEnabled = ducking, DuckAmount = duckAmount };
+            _project = _project with { MasterVolume = masterVolume, MasterMuted = masterMuted, Tracks = tracks, DuckingEnabled = ducking, DuckAmount = duckAmount, AutoLevelEnabled = autoLevel };
+            // On a legacy project, prepare missing analysis while the transport
+            // is paused, then resume its previous playing/paused state.
+            if (autoLevel && !_levelsPrepared) await ReconcileAsync(false, token).ConfigureAwait(false);
             UpdateDucking();
-            return Task.CompletedTask;
         });
     }
 
@@ -290,6 +295,7 @@ public sealed partial class PlaybackController : IDisposable
         _busy = true;
         Publish();
         token.ThrowIfCancellationRequested();
+        if (_project.AutoLevelEnabled && !_levelsPrepared) await PrepareAudioLevelsAsync(token).ConfigureAwait(false);
         var desired = ActiveAt(_basePosition);
         var video = desired.FirstOrDefault(item => item.Track.Kind == TrackKind.Video);
         bool subtitlePreferencesChanged = video is not null && MatchesSource(_video, video) &&
@@ -500,8 +506,8 @@ public sealed partial class PlaybackController : IDisposable
             if (slot.Clip is null || !_project.Tracks.TryGetValue(slot.TrackId, out var track)) continue;
             var muted = _project.MasterMuted || track.Muted || _pausedTracks.ContainsKey(slot.TrackId) || !_playing || !slot.Ready;
             var gain = _project.DuckingEnabled && !track.Voice && slot.Meter is not null && !slot.MeterPending
-                ? _ducking.GainAtLevel(slot.Meter.LevelDb, track.Volume) : 1;
-            var volume = (int)Math.Round(_project.MasterVolume * track.Volume / 100.0 * gain, MidpointRounding.AwayFromZero);
+                ? _ducking.GainAtLevel(slot.Meter.LevelDb + LevelGainDb(slot), track.Volume) : 1;
+            var volume = (int)Math.Round(_project.MasterVolume * track.Volume / 100.0 * Math.Cbrt(LevelGain(slot)) * gain, MidpointRounding.AwayFromZero);
             if (slot.Player.Volume != volume) slot.Player.Volume = volume;
             if (slot.Player.Mute != muted) slot.Player.Mute = muted;
         }
@@ -574,7 +580,7 @@ public sealed partial class PlaybackController : IDisposable
             return new PlaybackDiagnostic(slot.Clip!.Id, slot.TrackId, slot.IsVideo, position,
                 ExpectedTime(slot, position), slot.Player.Time, slot.EstimatedTime(now),
                 slot.Player.Volume, slot.Player.Mute, slot.Player.State.ToString(), statistics.DecodedAudio,
-                statistics.DecodedVideo, statistics.PlayedAudioBuffers, statistics.DisplayedPictures, slot.Meter?.LevelDb, slot.Meter?.TimeMs);
+                statistics.DecodedVideo, statistics.PlayedAudioBuffers, statistics.DisplayedPictures, slot.Meter?.LevelDb, slot.Meter?.TimeMs, LevelGainDb(slot));
         }).ToArray();
         Volatile.Write(ref _diagnostics, new ReadOnlyCollection<PlaybackDiagnostic>(diagnostics));
         }
@@ -600,18 +606,19 @@ public sealed partial class PlaybackController : IDisposable
         StopForShutdownAsync().GetAwaiter().GetResult();
         _ticker.GetAwaiter().GetResult();
         _video.Dispose();
+        if (_ownsLevelAnalysis) _levelAnalysis.DisposeAsync().AsTask().GetAwaiter().GetResult();
         _lifetime.Dispose();
     }
 
     private sealed record Work(Func<CancellationToken, Task> Execute, TaskCompletionSource? Completion, bool IsTick);
-    private sealed record AssetData(string Id, string Name, string FilePath, long DurationMs, bool HasAudio, bool Offline, SubtitleMode Subtitles, int SubtitleTrackIndex, string? SubtitleFilePath);
+    private sealed record AssetData(string Id, string Name, string FilePath, long DurationMs, bool HasAudio, bool Offline, SubtitleMode Subtitles, int SubtitleTrackIndex, string? SubtitleFilePath, AudioLevelProfile? Levels = null);
     private sealed record TrackData(string Id, TrackKind Kind, int Volume, bool Muted, bool Voice);
     private sealed record ClipData(string Id, string AssetId, string TrackId, long StartMs);
     private sealed record ActiveItem(ClipData Clip, AssetData Asset, TrackData Track);
     private sealed record ProjectSnapshot(Dictionary<string, AssetData> Assets, Dictionary<string, TrackData> Tracks,
-        ClipData[] Clips, int MasterVolume, bool MasterMuted, long Duration, bool DuckingEnabled, int DuckAmount)
+        ClipData[] Clips, int MasterVolume, bool MasterMuted, long Duration, bool DuckingEnabled, int DuckAmount, bool AutoLevelEnabled)
     {
-        public static ProjectSnapshot Empty => new(new(), new(), [], 100, false, 0, false, 30);
+        public static ProjectSnapshot Empty => new(new(), new(), [], 100, false, 0, false, 30, false);
         public static ProjectSnapshot From(ProjectDocument project, IReadOnlySet<string>? offlineAssetIds)
         {
             var assets = project.Assets.ToDictionary(asset => asset.Id, asset => new AssetData(asset.Id, asset.Name,
@@ -621,7 +628,7 @@ public sealed partial class PlaybackController : IDisposable
             var clips = project.Clips.Select(clip => new ClipData(clip.Id, clip.AssetId, clip.TrackId, clip.StartMs)).ToArray();
             var duration = clips.Where(clip => assets.ContainsKey(clip.AssetId))
                 .Select(clip => clip.StartMs + assets[clip.AssetId].DurationMs).DefaultIfEmpty(0).Max();
-            return new ProjectSnapshot(assets, tracks, clips, Math.Clamp(project.MasterVolume, 0, 100), project.MasterMuted, duration, project.AutoDuckingEnabled, project.DuckAmount);
+            return new ProjectSnapshot(assets, tracks, clips, Math.Clamp(project.MasterVolume, 0, 100), project.MasterMuted, duration, project.AutoDuckingEnabled, project.DuckAmount, project.AutoLevelEnabled);
         }
     }
 

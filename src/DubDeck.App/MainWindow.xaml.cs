@@ -39,7 +39,7 @@ public partial class MainWindow : Window
         _startupPath = startupPath;
         _engine = new MediaEngine();
         _waveforms = new WaveformService(_engine.LibVLC);
-        _playback = new PlaybackController(_engine, enableDiagnostics: App.SmokeTestDirectory is not null || App.PerformanceTestDirectory is not null, simulateVideoStartupStall: App.SimulateVideoStartupStall);
+        _playback = new PlaybackController(_engine, enableDiagnostics: App.SmokeTestDirectory is not null || App.PerformanceTestDirectory is not null, simulateVideoStartupStall: App.SimulateVideoStartupStall, analysisService: _waveforms);
         VideoHost.MediaPlayer = _playback.VideoPlayer;
         _playback.StatusChanged += status => { if (!_closing) Volatile.Write(ref _latestStatus, status); };
         _uiTimer = new System.Windows.Threading.DispatcherTimer(System.Windows.Threading.DispatcherPriority.Background, Dispatcher) { Interval = TimeSpan.FromMilliseconds(100) };

@@ -41,6 +41,7 @@ public static class ProjectStore
             PlayheadMs = stored.PlayheadMs,
             MasterVolume = stored.MasterVolume,
             MasterMuted = stored.MasterMuted,
+            AutoLevelEnabled = stored.AutoLevelEnabled,
             AutoDuckingEnabled = stored.AutoDuckingEnabled,
             DuckAmount = stored.DuckAmount,
             Tracks = stored.Tracks,
@@ -81,6 +82,7 @@ public static class ProjectStore
             PlayheadMs = Math.Clamp(project.PlayheadMs, 0, TimelineRules.Duration(project)),
             MasterVolume = project.MasterVolume,
             MasterMuted = project.MasterMuted,
+            AutoLevelEnabled = project.AutoLevelEnabled,
             AutoDuckingEnabled = project.AutoDuckingEnabled,
             DuckAmount = project.DuckAmount,
             Tracks = project.Tracks,
@@ -163,6 +165,7 @@ public static class ProjectStore
         public long PlayheadMs { get; set; }
         public int MasterVolume { get; set; } = 100;
         public bool MasterMuted { get; set; }
+        public bool AutoLevelEnabled { get; set; }
         public bool AutoDuckingEnabled { get; set; }
         public int DuckAmount { get; set; } = 30;
         public List<StoredAsset>? Assets { get; set; }

@@ -53,6 +53,7 @@ public sealed class ProjectDocument
     public long PlayheadMs { get; set; }
     public int MasterVolume { get; set; } = 100;
     public bool MasterMuted { get; set; }
+    public bool AutoLevelEnabled { get; set; } = true;
     public bool AutoDuckingEnabled { get; set; } = true;
     public int DuckAmount { get; set; } = 30;
     public List<MediaAsset> Assets { get; set; } = [];

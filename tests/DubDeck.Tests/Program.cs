@@ -12,6 +12,8 @@ var tests = new (string Name, Action Run)[]
     ("Voice ducking smooths, holds, and releases", Ducking),
     ("Ducking preserves quiet target passages and follows their mix level", QuietDucking),
     ("Ducking preferences save while runtime pause does not", DuckPreferences),
+    ("Auto level matches loud passages, preserves dynamics and leaves peak headroom", LevelMatching),
+    ("Auto level defaults, opt-out and legacy projects round-trip", LevelPreferences),
     ("Empty projects have zero duration", EmptyProject),
     ("Active scheduling uses exclusive ends and includes audio past video", ActiveScheduling),
     ("Video gaps have no active video", VideoGaps),
@@ -375,6 +377,7 @@ static void QuietDucking()
     True(Math.Abs(envelope.GainAtLevel(-12, 100) - .4) < .001);
     // Lowering the target track makes it quiet even if its source is loud.
     True(Math.Abs(envelope.GainAtLevel(-12, 10) - 1) < .001);
+    True(Math.Abs(envelope.GainAtLevel(-12, 50) - 1) < .001);
     // Target loudness cannot trigger the commentary envelope by itself.
     envelope.Reset();
     True(Math.Abs(envelope.GainAtLevel(-12, 100) - 1) < .001);
@@ -383,6 +386,56 @@ static void QuietDucking()
     True(envelope.GainAtLevel(-12, 100) < .001);
     for (int i = 0; i < 15; i++) envelope.Update(false, true, 100, .04);
     True(Math.Abs(envelope.GainAtLevel(-12, 100) - 1) < .001);
+}
+static void LevelMatching()
+{
+    AudioLevelProfile Analyze(short loud)
+    {
+        var analyzer = new AudioLevelAnalyzer();
+        var silence = new short[1600];
+        for (int i = 0; i < 10; i++) analyzer.AddSamples(silence, 1000, 2);
+        foreach (short amplitude in new short[] { loud, (short)(loud / 20), loud, loud })
+        {
+            var block = new short[800];
+            for (int frame = 0; frame < 400; frame++) { block[frame * 2] = amplitude; block[frame * 2 + 1] = (short)-amplitude; }
+            analyzer.AddSamples(block, 1000, 2);
+        }
+        return analyzer.Build();
+    }
+    var loud = Analyze(8192);
+    var soft = Analyze(2048);
+    True(Math.Abs(loud.LoudLevelDb + loud.GainDb - (-20)) < .01);
+    True(Math.Abs(soft.LoudLevelDb + soft.GainDb - (-20)) < .01);
+    True(loud.Gain < 1 && soft.Gain > 1);
+    True(Math.Abs(Math.Pow(loud.PlayerVolumeScale, 3) - loud.Gain) < .00001);
+    True(Math.Abs(Math.Pow(soft.PlayerVolumeScale, 3) - soft.Gain) < .00001);
+    // One constant gain leaves the 20:1 dialogue/whisper ratio intact.
+    True(Math.Abs((.25 * loud.Gain) / (.0125 * loud.Gain) - 20) < .00001);
+    var transient = new AudioLevelProfile(-30, -1);
+    True(transient.PeakDb + transient.GainDb <= -3 + .001);
+    True(new AudioLevelProfile(-45, -40).GainDb <= 12 + .001);
+    var silenceProfile = new AudioLevelAnalyzer().Build();
+    Equal(1d, silenceProfile.Gain);
+    Throws<ArgumentException>(() => new AudioLevelProfile(double.NaN, -1));
+    Throws<ArgumentException>(() => new AudioLevelProfile(-5, -10));
+}
+static void LevelPreferences()
+{
+    using var files = new TestFiles();
+    var project = Fixture(files.Folder);
+    True(project.AutoLevelEnabled);
+    var path = Path.Combine(files.Folder, "Levels.dubdeck");
+    project.AutoLevelEnabled = false;
+    ProjectStore.Save(project, path);
+    False(ProjectStore.Load(path).AutoLevelEnabled);
+    project.AutoLevelEnabled = true;
+    ProjectStore.Save(project, path);
+    True(ProjectStore.Load(path).AutoLevelEnabled);
+    var json = JsonNode.Parse(File.ReadAllText(path))!;
+    json.AsObject().Remove("autoLevelEnabled");
+    File.WriteAllText(path, json.ToJsonString());
+    False(ProjectStore.Load(path).AutoLevelEnabled);
+    True(project.Tracks.All(track => track.Volume == 100));
 }
 static void DuckPreferences()
 {

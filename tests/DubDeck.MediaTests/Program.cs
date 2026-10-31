@@ -113,7 +113,7 @@ internal sealed class MediaSuite
                 int decodes = waveforms.DecodeCount;
                 var first = _assets["audio.wav"];
                 var cached = await waveforms.GetAsync(first.FilePath, first.DurationMs);
-                Require(cached is not null && waveforms.DecodeCount == decodes, "Repeated waveform requests decoded the file again");
+                Require(cached?.Levels is not null && waveforms.DecodeCount == decodes, "Repeated waveform requests decoded the file again");
                 var extractionTimer = Stopwatch.StartNew();
                 var voice = await waveforms.GetAsync(Fixture("voice-gated.wav"), 12000);
                 Require(extractionTimer.ElapsedMilliseconds < 8000, "Waveform generation is paced to real-time playback");
@@ -123,6 +123,22 @@ internal sealed class MediaSuite
                 decodes = waveforms.DecodeCount;
                 Require(await waveforms.GetAsync(first.FilePath, first.DurationMs) is not null && waveforms.DecodeCount == decodes + 1,
                     "A damaged waveform cache did not regenerate");
+                // A legacy peak-only cache is upgraded once to include level statistics.
+                var upgraded = await waveforms.GetAsync(first.FilePath, first.DurationMs);
+                string oldCache = Directory.GetFiles(cache, "*.wave").Single(path =>
+                {
+                    using var reader = new BinaryReader(File.OpenRead(path));
+                    return reader.ReadInt32() == 0x56535732 && reader.ReadInt64() == first.DurationMs;
+                });
+                using (var writer = new BinaryWriter(File.Create(oldCache)))
+                {
+                    writer.Write(0x56535731); writer.Write(upgraded!.DurationMs);
+                    writer.Write(upgraded.BinDurationMs); writer.Write(upgraded.BinCount);
+                    foreach (ushort peak in upgraded.Peaks) writer.Write(peak);
+                }
+                decodes = waveforms.DecodeCount;
+                Require((await waveforms.GetAsync(first.FilePath, first.DurationMs))?.Levels is not null &&
+                    waveforms.DecodeCount == decodes + 1, "A legacy peak-only cache did not regenerate level statistics");
                 string changed = Path.Combine(cache, "changed.wav");
                 File.Copy(first.FilePath, changed);
                 Require(await waveforms.GetAsync(changed, first.DurationMs) is not null, "Copied waveform source did not decode");
@@ -391,7 +407,7 @@ internal sealed class MediaSuite
                 var voice = await engine.ProbeAsync(Fixture("voice-gated.wav"));
                 var bed = _assets["audio.wav"];
                 var voiceTrack = new TimelineTrack { Id="voice", Name="Voice", Kind=TrackKind.Audio, IsDuckingSource=true };
-                var project = new ProjectDocument { MasterMuted=true, AutoDuckingEnabled=true, DuckAmount=60,
+                var project = new ProjectDocument { MasterMuted=true, AutoLevelEnabled=false, AutoDuckingEnabled=true, DuckAmount=60,
                     Assets=[voice,bed], Tracks=[new(){Id="video",Kind=TrackKind.Video},voiceTrack,new(){Id="bed",Kind=TrackKind.Audio}],
                     Clips=[new(){AssetId=voice.Id,TrackId="voice"},new(){AssetId=bed.Id,TrackId="bed"}] };
                 await _controller.SetProjectAsync(project);
@@ -445,7 +461,7 @@ internal sealed class MediaSuite
                 var bed = _assets["audio.wav"];
                 var voiceTrack = new TimelineTrack { Id = "voice", Kind = TrackKind.Audio, IsDuckingSource = true };
                 var videoTrack = new TimelineTrack { Id = "video", Kind = TrackKind.Video };
-                var project = new ProjectDocument { MasterMuted = true, AutoDuckingEnabled = true, DuckAmount = 60,
+                var project = new ProjectDocument { MasterMuted = true, AutoLevelEnabled = false, AutoDuckingEnabled = true, DuckAmount = 60,
                     Assets = [voice, video, bed], Tracks = [videoTrack, voiceTrack, new() { Id = "bed", Kind = TrackKind.Audio }],
                     Clips = [new() { AssetId = voice.Id, TrackId = "voice" }, new() { AssetId = video.Id, TrackId = "video" },
                         new() { AssetId = bed.Id, TrackId = "bed" }] };
@@ -481,6 +497,71 @@ internal sealed class MediaSuite
                     "Target audio triggered ducking after the final Voice designation was removed");
                 await _controller.StopAsync();
             });
+            await Check("Automatic level matching preserves quiet dialogue and works with ducking", async () =>
+            {
+                var voice = await engine.ProbeAsync(Fixture("voice-steady.wav"));
+                var video = await engine.ProbeAsync(Fixture("ducking-levels.mkv"));
+                var project = new ProjectDocument { MasterMuted = true, AutoDuckingEnabled = false,
+                    Assets = [voice, video],
+                    Tracks = [new() { Id = "video", Kind = TrackKind.Video },
+                        new() { Id = "voice", Kind = TrackKind.Audio, IsDuckingSource = true }],
+                    Clips = [new() { AssetId = video.Id, TrackId = "video" }, new() { AssetId = voice.Id, TrackId = "voice" }] };
+                await _controller.SetProjectAsync(project);
+                await _controller.PlayAsync();
+                await Until(() => _controller.PositionMs > 500, TimeSpan.FromSeconds(2));
+                var movie = _controller.Diagnostics.Single(d => d.IsVideo);
+                var narration = _controller.Diagnostics.Single(d => d.TrackId == "voice");
+                Require(movie.LevelGainDb is > 0 and < 2 && narration.LevelGainDb is > -6 and < -4,
+                    "The loud and soft recordings did not receive opposite level corrections");
+                double movieDb = -21.0721 + 60 * Math.Log10(movie.Volume / 100d);
+                double voiceDb = -15.0515 + 60 * Math.Log10(narration.Volume / 100d);
+                Require(Math.Abs(movieDb - voiceDb) < .6 && Math.Abs(movieDb - (-20)) < .6,
+                    "Real decoded video and commentary did not reach comparable loud-passage levels");
+                Require(project.Tracks.All(t => t.Volume == 100) && project.MasterVolume == 100,
+                    "Automatic level matching changed the manual mix controls");
+                int movieVolume = movie.Volume, voiceVolume = narration.Volume;
+                await Until(() => _controller.PositionMs > 3000, TimeSpan.FromSeconds(4));
+                Require(_controller.Diagnostics.Single(d => d.IsVideo).Volume == movieVolume,
+                    "Level matching pumped the gain up during a whisper");
+                project.AutoDuckingEnabled = true;
+                await _controller.UpdateVolumeAsync(project);
+                await Until(() => _controller.PositionMs > 4900, TimeSpan.FromSeconds(3));
+                Require(_controller.Diagnostics.Single(d => d.IsVideo).Volume <= movieVolume * .72,
+                    "Normalized loud video did not duck under commentary");
+                Require(_controller.Diagnostics.Single(d => d.TrackId == "voice").Volume == voiceVolume,
+                    "Commentary was ducked along with the video");
+                await Until(() => _controller.PositionMs > 7000, TimeSpan.FromSeconds(3));
+                Require(_controller.Diagnostics.Single(d => d.IsVideo).Volume == movieVolume,
+                    "Normalized whisper-level video did not retain its base gain during commentary");
+                project.AutoDuckingEnabled = false;
+                project.AutoLevelEnabled = false;
+                int opens = _controller.SourceOpenCount, analyses = _controller.LevelAnalysisDecodeCount;
+                await _controller.UpdateVolumeAsync(project);
+                Require(_controller.Diagnostics.All(d => d.Volume == 100 && d.LevelGainDb == 0),
+                    "Disabling Auto level did not restore the original track gains");
+                project.AutoLevelEnabled = true;
+                await _controller.UpdateVolumeAsync(project);
+                Require(_controller.Diagnostics.Single(d => d.IsVideo).Volume == movieVolume &&
+                    _controller.Diagnostics.Single(d => d.TrackId == "voice").Volume == voiceVolume,
+                    "Re-enabling Auto level lost the analyzed gains");
+                await _controller.SeekAsync(3000);
+                Require(_controller.Diagnostics.Single(d => d.IsVideo).Volume == movieVolume,
+                    "Seeking discarded the fixed source correction");
+                await _controller.SetProjectAsync(project);
+                Require(_controller.SourceOpenCount == opens && _controller.LevelAnalysisDecodeCount == analyses,
+                    "Mix toggles or an unchanged project reopened or reanalyzed media");
+                await _controller.StopAsync();
+                project.AutoLevelEnabled = false;
+                await _controller.SetProjectAsync(project);
+                await _controller.PlayAsync();
+                Require(_controller.Diagnostics.All(d => d.LevelGainDb == 0),
+                    "An opted-out project applied automatic correction");
+                project.AutoLevelEnabled = true;
+                await _controller.UpdateVolumeAsync(project);
+                Require(_controller.IsPlaying && _controller.Diagnostics.Single(d => d.IsVideo).Volume == movieVolume,
+                    "Enabling Auto level on a legacy project did not prepare levels and resume playback");
+                await _controller.StopAsync();
+            });
             if (_args.Contains("--soak", StringComparer.Ordinal))
                 await Check("Ten real minutes of coordinated native playback", () => SoakAsync(engine, runName));
         }
@@ -500,7 +581,7 @@ internal sealed class MediaSuite
         var second = _assets["video.mkv"];
         return new ProjectDocument
         {
-            Name = "Real media integration", MasterMuted = true,
+            Name = "Real media integration", MasterMuted = true, AutoLevelEnabled = false,
             Assets = [first, second, _assets["audio.wav"], _assets["audio.m4a"]],
             Tracks = [new() { Id = "video", Name = "Video", Kind = TrackKind.Video },
                 new() { Id = "audio-one", Name = "Audio 1", Kind = TrackKind.Audio },
@@ -599,7 +680,7 @@ internal sealed class MediaSuite
     private async Task Check(string name, Func<Task> action)
     {
         if (_args.Contains("--waveform-only") && !name.StartsWith("Seven") && !name.StartsWith("Waveform")) return;
-        if (_args.Contains("--mixer-only") && !name.StartsWith("Seven") && !name.StartsWith("Track pause") && !name.StartsWith("Voice activity")) return;
+        if (_args.Contains("--mixer-only") && !name.StartsWith("Seven") && !name.StartsWith("Track pause") && !name.StartsWith("Voice activity") && !name.StartsWith("Automatic level")) return;
         Console.WriteLine($"RUN: {name}");
         var timer = Stopwatch.StartNew();
         try
