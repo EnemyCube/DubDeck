@@ -1,6 +1,6 @@
 # Local release tools
 
-These tracked helpers retain the reusable logic previously stored in version-specific scripts under artifacts/. They do not upload, push, tag or publish to GitHub.
+These helpers build, validate, and package local releases. They do not upload, push, tag or publish to GitHub.
 
 - Build.ps1 builds the app and runs core tests; -Publish and -Portable create distribution editions.
 - Test-Release.ps1 validates an actual app executable, using repository fixtures by default and accepting explicit fixture/report directories.
