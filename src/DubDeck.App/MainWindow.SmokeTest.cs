@@ -154,6 +154,10 @@ public partial class MainWindow
             ShowStatus(new DubDeck.App.Media.PlaybackStatus(_playback.PositionMs,TimelineRules.Duration(_project),false,false,null));
             double fullscreenTarget=FullSeekBar.Value+300;
             FullSeekBar.Value=fullscreenTarget;
+            ShowStatus(new DubDeck.App.Media.PlaybackStatus(paused, TimelineRules.Duration(_project), false, false, null));
+            Check(FullSeekBar.Value == fullscreenTarget && SeekBar.Value == fullscreenTarget && EmptySeekBar.Value == fullscreenTarget &&
+                Timeline.Playhead == (long)fullscreenTarget && TimeLabel.Text.StartsWith(TimelineSurface.Format((long)fullscreenTarget)),
+                "Status from before a pending seek preserves the requested position across the timeline and scrubbers");
             await Task.Delay(400);
             Check(Math.Abs(_playback.PositionMs-fullscreenTarget)<100 && !_playback.IsPlaying,"Fullscreen scrubber seeks while preserving paused playback");
             Check(FullMasterValue.Text==_project.MasterVolume+"%" && EmptyMasterValue.Text==FullMasterValue.Text,"Fullscreen master readouts stay synchronized");

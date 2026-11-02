@@ -40,7 +40,7 @@ public sealed class WaveformService : IAsyncDisposable
                 var file = new FileInfo(path);
                 if (!file.Exists || durationMs <= 0) return null;
                 long size = file.Length, modified = file.LastWriteTimeUtc.Ticks;
-                string identity = string.Join("|", Path.GetFullPath(path).ToUpperInvariant(), size.ToString(CultureInfo.InvariantCulture),
+                string identity = string.Join("|", "timeline-origin-v1", Path.GetFullPath(path).ToUpperInvariant(), size.ToString(CultureInfo.InvariantCulture),
                     modified.ToString(CultureInfo.InvariantCulture), durationMs.ToString(CultureInfo.InvariantCulture));
                 string cache = Path.Combine(_cacheDirectory, Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(identity))) + ".wave");
                 var stored = ReadCache(cache, durationMs);
@@ -102,6 +102,11 @@ public sealed class WaveformService : IAsyncDisposable
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
     private delegate void AudioPostRender(IntPtr data, IntPtr samples, uint channels, uint rate, uint frames, uint bits, UIntPtr size, long pts);
 
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    private delegate void VideoPreRender(IntPtr data, ref IntPtr pixels, UIntPtr size);
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    private delegate void VideoPostRender(IntPtr data, IntPtr pixels, int width, int height, int pitch, UIntPtr size, long pts);
+
     private async Task<AudioWaveform> DecodeAsync(string path, long durationMs, CancellationToken cancellationToken)
     {
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -111,6 +116,9 @@ public sealed class WaveformService : IAsyncDisposable
         var builder = new AudioWaveformBuilder(durationMs);
         IntPtr buffer = IntPtr.Zero;
         int capacity = 0;
+        IntPtr videoBuffer = IntPtr.Zero;
+        int videoCapacity = 0;
+        var videoOrigin = new TaskCompletionSource<long>(TaskCreationOptions.RunContinuationsAsynchronously);
         short[] samples = new short[8192];
         long? firstPts = null;
         bool received = false;
@@ -150,21 +158,48 @@ public sealed class WaveformService : IAsyncDisposable
             }
             catch (Exception ex) { completion.TrySetException(ex); }
         };
-        using var player = new MediaPlayer(_engine);
+        VideoPreRender videoBefore = (IntPtr _, ref IntPtr output, UIntPtr requested) =>
+        {
+            output = IntPtr.Zero;
+            try
+            {
+                if (token.IsCancellationRequested || requested.ToUInt64() > 16 * 1024 * 1024) return;
+                int length = checked((int)requested.ToUInt64());
+                if (length > videoCapacity)
+                {
+                    if (videoBuffer != IntPtr.Zero) Marshal.FreeHGlobal(videoBuffer);
+                    videoBuffer = IntPtr.Zero;
+                    videoCapacity = 0;
+                    videoBuffer = Marshal.AllocHGlobal(length);
+                    videoCapacity = length;
+                }
+                output = videoBuffer;
+            }
+            catch (Exception ex) { completion.TrySetException(ex); }
+        };
+        VideoPostRender videoAfter = (_, _, _, _, _, _, pts) => { if (pts > 0) videoOrigin.TrySetResult(pts); };
+        using var player = new MediaPlayer(_engine) { EnableHardwareDecoding = false };
         using var media = new LibVLCSharp.Shared.Media(_engine, path, FromType.FromPath);
-        media.AddOption(":no-video"); media.AddOption(":no-spu"); media.AddOption(":no-sout-video");
+        media.AddOption(":no-spu");
         media.AddOption(":no-sout-spu"); media.AddOption(":no-sout-all");
         media.AddOption(":avcodec-threads=1");
         long pre = Marshal.GetFunctionPointerForDelegate(before).ToInt64();
         long post = Marshal.GetFunctionPointerForDelegate(after).ToInt64();
+        long videoPre = Marshal.GetFunctionPointerForDelegate(videoBefore).ToInt64();
+        long videoPost = Marshal.GetFunctionPointerForDelegate(videoAfter).ToInt64();
         // VLC chain booleans use the no- prefix; time-sync=0 actually enables pacing.
-        media.AddOption(FormattableString.Invariant($":sout=#transcode{{acodec=s16l,channels=2,samplerate=48000,threads=1}}:smem{{audio-prerender-callback={pre},audio-postrender-callback={post},no-time-sync}}"));
+        media.AddOption(FormattableString.Invariant($":sout=#transcode{{acodec=s16l,channels=2,samplerate=48000,threads=1}}:smem{{video-prerender-callback={videoPre},video-postrender-callback={videoPost},audio-prerender-callback={pre},audio-postrender-callback={post},no-time-sync}}"));
         player.EndReached += (_, _) => completion.TrySetResult(true);
         player.EncounteredError += (_, _) => completion.TrySetException(new IOException("The audio waveform could not be decoded."));
         try
         {
             token.ThrowIfCancellationRequested();
             if (!player.Play(media)) throw new IOException("The audio waveform could not be opened.");
+            // smem also accepts encoded video packets. Their first presentation time
+            // anchors delayed audio without decoding video or moving it to the clip start.
+            // Disable that stream on this worker once its reference is available.
+            if (await Task.WhenAny(completion.Task, videoOrigin.Task).WaitAsync(token).ConfigureAwait(false) == videoOrigin.Task)
+                if (!player.SetVideoTrack(-1)) throw new IOException("The waveform video reference could not be stopped.");
             await completion.Task.WaitAsync(token).ConfigureAwait(false);
         }
         finally
@@ -172,10 +207,26 @@ public sealed class WaveformService : IAsyncDisposable
             // This continuation never runs on a native callback. Stop joins outstanding sample delivery.
             player.Stop();
             if (buffer != IntPtr.Zero) Marshal.FreeHGlobal(buffer);
-            GC.KeepAlive(before); GC.KeepAlive(after);
+            if (videoBuffer != IntPtr.Zero) Marshal.FreeHGlobal(videoBuffer);
+            GC.KeepAlive(before); GC.KeepAlive(after); GC.KeepAlive(videoBefore); GC.KeepAlive(videoAfter);
         }
         if (!received) throw new IOException("No waveform samples were decoded.");
-        return builder.Build();
+        var waveform = builder.Build();
+        if (!videoOrigin.Task.IsCompletedSuccessfully || videoOrigin.Task.Result >= firstPts!.Value) return waveform;
+        double offsetBins = Math.Min(waveform.BinCount,
+            (firstPts.Value - videoOrigin.Task.Result) / (1000d * waveform.BinDurationMs));
+        var aligned = new ushort[waveform.BinCount];
+        // Each peak covers a bin interval; preserve it in every destination bin
+        // touched by the offset rather than interpolating away a narrow transient.
+        for (int index = 0; index < waveform.BinCount; index++)
+        {
+            int start = (int)Math.Floor(index + offsetBins);
+            if (start >= aligned.Length) break;
+            int end = Math.Min(aligned.Length, (int)Math.Ceiling(index + offsetBins + 1));
+            for (int target = start; target < end; target++)
+                aligned[target] = Math.Max(aligned[target], waveform.Peaks[index]);
+        }
+        return new(waveform.DurationMs, waveform.BinDurationMs, aligned);
     }
 
     public async ValueTask DisposeAsync()

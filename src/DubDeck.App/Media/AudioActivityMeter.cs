@@ -29,7 +29,9 @@ internal sealed class AudioActivityMeter : IDisposable
         _clockOffsetUs = engine.Clock - MonotonicUs();
         _player = new MediaPlayer(engine);
         _play = OnSamples;
-        _pause = (_, _) => Clear();
+        // EOF can pause the tap while its final PCM is still due for playback.
+        // Explicit pause requests clear below; keep these queued levels until they expire.
+        _pause = (_, _) => { };
         _resume = (_, _) => Clear();
         _flush = (_, _) => Clear();
         _drain = _ => { };
@@ -37,6 +39,8 @@ internal sealed class AudioActivityMeter : IDisposable
         _player.SetAudioFormat("S16N", 16000, 1);
         _player.SetAudioCallbacks(_play, _pause, _resume, _flush, _drain);
         _media = new LibVLCSharp.Shared.Media(engine, path, FromType.FromPath);
+        // Keep the tap seekable after it reaches the end slightly before audible output.
+        _media.AddOption(":play-and-pause");
         _media.AddOption(":no-video"); _media.AddOption(":no-spu"); _media.AddOption(":file-caching=100");
         _player.Play(_media);
     }

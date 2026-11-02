@@ -69,6 +69,7 @@ public sealed partial class PlaybackController
             var slot = Slots().FirstOrDefault(s => s.TrackId == trackId && s.Clip is not null);
             if (slot is not null && _playing)
             {
+                slot.PreparedMediaTime = null;
                 slot.Player.SetPause(false);
                 slot.Running = true;
                 slot.ResetSample(slot.Player.Time);

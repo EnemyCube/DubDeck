@@ -143,14 +143,17 @@ public partial class MainWindow : Window
         _preparing = status.IsBusy;
         BlankVideo.Visibility = _videoVisible && !_preparing ? Visibility.Collapsed : Visibility.Visible;
         _updating = true;
-        Timeline.Playhead = status.PositionMs;
+        // Status from the old playback position can arrive during the seek debounce
+        // or while native players prepare. Keep the requested position visible.
+        long displayPosition = _pendingSeek ?? status.PositionMs;
+        Timeline.Playhead = displayPosition;
         foreach (var bar in new[] { SeekBar, FullSeekBar, EmptySeekBar })
         {
             bar.Maximum = Math.Max(1, status.DurationMs);
-            if (!_seekDragging) bar.Value = Math.Clamp(status.PositionMs, 0, bar.Maximum);
+            if (!_seekDragging) bar.Value = Math.Clamp(displayPosition, 0, bar.Maximum);
         }
-        TimeLabel.Text = TimelineSurface.Format(status.PositionMs) + " / " + TimelineSurface.Format(status.DurationMs);
-        FullTime.Text = EmptyTime.Text = TimelineSurface.Format(status.PositionMs, false) + " / " + TimelineSurface.Format(status.DurationMs, false);
+        TimeLabel.Text = TimelineSurface.Format(displayPosition) + " / " + TimelineSurface.Format(status.DurationMs);
+        FullTime.Text = EmptyTime.Text = TimelineSurface.Format(displayPosition, false) + " / " + TimelineSurface.Format(status.DurationMs, false);
         AppIcons.SetButton(PlayButton, status.IsPlaying ? "pause" : "play", status.IsPlaying ? "Pause · Space" : "Play · Space");
         AppIcons.SetButton(FullPlay, status.IsPlaying ? "pause" : "play", status.IsPlaying ? "Pause · Space" : "Play · Space");
         AppIcons.SetButton(EmptyPlay, status.IsPlaying ? "pause" : "play", status.IsPlaying ? "Pause · Space" : "Play · Space");

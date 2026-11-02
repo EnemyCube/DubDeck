@@ -101,8 +101,9 @@ public static class TimelineRules
             if (asset.DurationMs <= 0) throw new InvalidDataException($"Media '{asset.Name}' must have a positive duration.");
             if (!Enum.IsDefined(asset.Subtitles)) throw new InvalidDataException("Unsupported subtitle mode.");
             if (asset.Subtitles == SubtitleMode.Embedded && asset.SubtitleTrackIndex < 0) throw new InvalidDataException("Choose a valid embedded subtitle track.");
-            if (asset.Subtitles == SubtitleMode.External && (string.IsNullOrWhiteSpace(asset.SubtitleFilePath) || !Path.IsPathFullyQualified(asset.SubtitleFilePath)))
-                throw new InvalidDataException("External subtitles must have an absolute source path.");
+            if ((asset.SubtitleFilePath is not null || asset.Subtitles == SubtitleMode.External) &&
+                (string.IsNullOrWhiteSpace(asset.SubtitleFilePath) || !Path.IsPathFullyQualified(asset.SubtitleFilePath) || asset.SubtitleFilePath.Contains('\0')))
+                throw new InvalidDataException("Subtitle files must have an absolute source path.");
             if (!asset.HasVideo && !asset.HasAudio) throw new InvalidDataException($"Media '{asset.Name}' contains no video or audio.");
         }
 

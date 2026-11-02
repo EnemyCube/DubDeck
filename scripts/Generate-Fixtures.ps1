@@ -46,10 +46,21 @@ $subtitleText = "1`r`n00:00:00,000 --> 00:00:07,900`r`nDUBDECK SUBTITLE TEST`r`n
 Invoke-Encode 'subtitle-sidecar.mp4' @('-f','lavfi','-i','color=c=black:size=640x360:rate=25','-f','lavfi','-i','sine=frequency=440:sample_rate=48000','-t','8','-c:v','libx264','-preset','ultrafast','-pix_fmt','yuv420p','-c:a','aac','-movflags','+faststart')
 Invoke-Encode 'subtitle-embedded.mkv' @('-i',(Join-Path $destination 'subtitle-sidecar.mp4'),'-i',(Join-Path $destination 'subtitle-embedded.en.srt'),'-map','0:v','-map','0:a','-map','1:0','-c','copy','-c:s','srt','-metadata:s:s:0','language=eng','-metadata:s:s:0','title=English test captions')
 
-Write-Host "Fixtures ready: $destination"
 
 # Audible voice-like tone for two seconds, silence for two seconds, repeating.
 Invoke-Encode 'voice-gated.wav' @('-f','lavfi','-i','aevalsrc=if(lt(mod(t\,4)\,2)\,0.25*sin(2*PI*440*t)\,0):s=16000','-t','12','-c:a','pcm_s16le')
 # Constant commentary over a video whose audio alternates loud and whisper-level passages.
 Invoke-Encode 'voice-steady.wav' @('-f','lavfi','-i','aevalsrc=0.25*sin(2*PI*440*t):s=16000','-t','12','-c:a','pcm_s16le')
 Invoke-Encode 'ducking-levels.mkv' @('-f','lavfi','-i','testsrc2=size=160x90:rate=25','-f','lavfi','-i','aevalsrc=if(lt(mod(t\,4)\,2)\,0.125\,0.008)*sin(2*PI*660*t):s=16000','-t','12','-c:v','libx264','-preset','ultrafast','-pix_fmt','yuv420p','-c:a','pcm_s16le','-shortest')
+# The video outlasts its audio stream, so a ducking tap reaches EOF before the clip.
+Invoke-Encode 'short-audio.mkv' @('-f','lavfi','-i','testsrc2=size=160x90:rate=25:duration=8','-f','lavfi','-i','sine=frequency=660:sample_rate=16000:duration=2','-c:v','libx264','-preset','ultrafast','-pix_fmt','yuv420p','-c:a','pcm_s16le')
+
+# A delayed audio stream must retain its gap in the timeline waveform.
+Invoke-Encode 'delayed-audio.mkv' @('-f','lavfi','-i','color=c=black:size=160x90:rate=25:duration=5','-itsoffset','2','-f','lavfi','-i','sine=frequency=660:sample_rate=16000:duration=1','-c:v','libx264','-preset','ultrafast','-pix_fmt','yuv420p','-c:a','pcm_s16le')
+
+# Regular scrub regressions use compact matching pulses without requiring the soak fixtures.
+$seekPulse = @('-f','lavfi','-i',"color=c=black:size=160x90:rate=25,drawbox=x=0:y=0:w=iw:h=ih:color=white:t=fill:enable='lt(mod(t,1),0.08)'",'-f','lavfi','-i',"aevalsrc=if(lt(mod(t\,1)\,0.08)\,0.18*sin(2*PI*880*t)\,0):s=48000",'-t','60','-c:v','libx264','-preset','ultrafast','-pix_fmt','yuv420p','-c:a','aac','-b:a','64k','-movflags','+faststart','-shortest')
+Invoke-Encode 'seek-sync.mp4' $seekPulse
+Invoke-Encode 'seek-sync.flac' @('-i',(Join-Path $destination 'seek-sync.mp4'),'-vn','-c:a','flac')
+
+Write-Host "Fixtures ready: $destination"

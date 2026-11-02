@@ -9,6 +9,11 @@ import sys
 import zipfile
 from pathlib import Path
 
+
+def require(condition, message):
+    if not condition:
+        raise RuntimeError(message)
+
 workspace = Path(__file__).resolve().parent.parent
 parser = argparse.ArgumentParser(description="Package and verify a fresh local DubDeck release; never upload or overwrite an existing release.")
 parser.add_argument("stage", type=Path, help="Directory containing the versioned folder and portable editions")
@@ -33,21 +38,21 @@ def digest(path):
     with path.open("rb") as stream:
         return hashlib.file_digest(stream, "sha256").hexdigest()
 
-assert folder.is_dir() and portable.is_file()
-assert list(portable_dir.iterdir()) == [portable], "Portable edition must contain one EXE"
-assert not archive.exists(), "Archive already exists"
+require(folder.is_dir() and portable.is_file(), "Missing staged folder or portable edition")
+require(list(portable_dir.iterdir()) == [portable], "Portable edition must contain one EXE")
+require(not archive.exists(), "Archive already exists")
 files = sorted(path for path in folder.rglob("*") if path.is_file())
 with zipfile.ZipFile(archive, "x", compression=zipfile.ZIP_DEFLATED, compresslevel=6) as output:
     for path in files:
         output.write(path, path.relative_to(folder).as_posix())
 print(f"Created ZIP with {len(files)} files", flush=True)
 with zipfile.ZipFile(archive) as package:
-    assert package.testzip() is None, "ZIP CRC check failed"
-    assert len(package.infolist()) == len(files)
+    require(package.testzip() is None, "ZIP CRC check failed")
+    require(len(package.infolist()) == len(files), "ZIP entry count differs from staged folder")
     for entry in package.infolist():
         with package.open(entry) as stream:
             actual = hashlib.file_digest(stream, "sha256").hexdigest()
-        assert actual == digest(folder / entry.filename), f"Archive differs: {entry.filename}"
+        require(actual == digest(folder / entry.filename), f"Archive differs: {entry.filename}")
 print("Every ZIP entry passed CRC and SHA-256 comparison", flush=True)
 
 for source in (folder, portable_dir):
@@ -55,7 +60,7 @@ for source in (folder, portable_dir):
     if source.resolve() == destination.resolve():
         print(f"Using already-staged {source.name}", flush=True)
         continue
-    assert not destination.exists(), f"Destination already exists: {destination}"
+    require(not destination.exists(), f"Destination already exists: {destination}")
     copied = subprocess.run(
         ["robocopy", str(source), str(destination), "/E", "/MT:16", "/R:1", "/W:1",
          "/NFL", "/NDL", "/NJH", "/NJS", "/NP"], capture_output=True, text=True)
@@ -63,15 +68,15 @@ for source in (folder, portable_dir):
         raise RuntimeError(f"Package copy failed: {copied.returncode}\n{copied.stdout}\n{copied.stderr}")
     source_files = [path for path in source.rglob("*") if path.is_file()]
     def verify_file(path):
-        assert digest(path) == digest(destination / path.relative_to(source)), str(path)
+        require(digest(path) == digest(destination / path.relative_to(source)), str(path))
     with ThreadPoolExecutor(max_workers=12) as workers:
         list(workers.map(verify_file, source_files))
     print(f"Copied and verified {source.name}", flush=True)
 destination_zip = artifacts / archive.name
 if archive.resolve() != destination_zip.resolve():
-    assert not destination_zip.exists(), f"Destination already exists: {destination_zip}"
+    require(not destination_zip.exists(), f"Destination already exists: {destination_zip}")
     shutil.copy2(archive, destination_zip)
-assert digest(archive) == digest(destination_zip)
+require(digest(archive) == digest(destination_zip), "Copied ZIP differs from staging")
 assets = [
     artifacts / portable_dir.name / portable.name,
     destination_zip,

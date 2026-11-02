@@ -95,7 +95,8 @@ public sealed partial class PlaybackController : IDisposable
             _basePosition = Math.Clamp(_basePosition, 0, TransportDuration(_basePosition));
             _error = null;
             var desired = ActiveAt(_basePosition);
-            bool reposition = !Matches(_video, desired.FirstOrDefault(item => item.Track.Kind == TrackKind.Video)) ||
+            bool reposition = startPositionMs.HasValue ||
+                !Matches(_video, desired.FirstOrDefault(item => item.Track.Kind == TrackKind.Video)) ||
                 desired.Count(item => item.Track.Kind == TrackKind.Audio) != _audio.Count ||
                 desired.Where(item => item.Track.Kind == TrackKind.Audio).Any(item => !_audio.TryGetValue(item.Track.Id, out var slot) || !Matches(slot, item));
             await ReconcileAsync(reposition, token).ConfigureAwait(false);
@@ -326,8 +327,9 @@ public sealed partial class PlaybackController : IDisposable
         foreach (var slot in Slots().Where(slot => slot.Clip is not null))
         {
             token.ThrowIfCancellationRequested();
-            await WaitUntilAsync(() => slot.Player.State != VLCState.Buffering,
+            await WaitUntilAsync(() => Volatile.Read(ref slot.Buffering) == 0 && slot.Player.State != VLCState.Buffering,
                 slot, TimeSpan.FromSeconds(8), token, "Media buffering timed out.").ConfigureAwait(false);
+            await PauseSlotAsync(slot, token).ConfigureAwait(false);
             if (reposition)
                 await SeekSlotAsync(slot, ExpectedTime(slot, _basePosition), token).ConfigureAwait(false);
         }
@@ -338,6 +340,7 @@ public sealed partial class PlaybackController : IDisposable
         {
             foreach (var slot in Slots().Where(slot => slot.Clip is not null && !_pausedTracks.ContainsKey(slot.TrackId)))
             {
+                slot.PreparedMediaTime = null;
                 slot.Player.SetPause(false);
                 slot.Running = true;
                 slot.ResetSample(slot.Player.Time);
@@ -399,6 +402,14 @@ public sealed partial class PlaybackController : IDisposable
                 (!item.Asset.HasAudio || (statistics.DecodedAudio > 0 && statistics.PlayedAudioBuffers > 0));
         }, slot, slot.IsVideo && !_softwareVideoFallback ? TimeSpan.FromMilliseconds(_simulateVideoStartupStall ? 100 : 4000) : TimeSpan.FromSeconds(12), token,
             $"Opening {item.Asset.Name} timed out before media output was ready.").ConfigureAwait(false);
+        await PauseSlotAsync(slot, token).ConfigureAwait(false);
+        slot.Running = false;
+        slot.Ready = true;
+        slot.ResetSample(slot.Player.Time);
+    }
+
+    private static async Task PauseSlotAsync(PlayerSlot slot, CancellationToken token)
+    {
         var pauseRetry = Stopwatch.StartNew();
         await WaitUntilAsync(() =>
         {
@@ -410,10 +421,7 @@ public sealed partial class PlaybackController : IDisposable
             }
             return false;
         }, slot, TimeSpan.FromSeconds(6), token,
-            $"Could not pause {item.Asset.Name} for synchronized playback.").ConfigureAwait(false);
-        slot.Running = false;
-        slot.Ready = true;
-        slot.ResetSample(slot.Player.Time);
+            $"Could not pause {slot.Asset?.Name} for synchronized playback.").ConfigureAwait(false);
     }
 
     private static async Task WaitUntilAsync(Func<bool> condition, PlayerSlot slot, TimeSpan timeout,
@@ -436,12 +444,41 @@ public sealed partial class PlaybackController : IDisposable
     private async Task SeekSlotAsync(PlayerSlot slot, long mediaTime, CancellationToken token)
     {
         token.ThrowIfCancellationRequested();
+        // A fully prepared paused seek remains valid until this player runs again.
+        // Re-seeking that position can otherwise request nonexistent data at EOF.
+        if (slot.PreparedMediaTime == mediaTime && slot.Player.State == VLCState.Paused && Volatile.Read(ref slot.Buffering) == 0) return;
         if (!slot.Player.IsSeekable && mediaTime > 100)
             throw new InvalidOperationException($"{slot.Asset?.Name} does not support timeline seeking.");
+        var bufferingGeneration = Interlocked.Read(ref slot.BufferingGeneration);
+        var statisticsBeforeSeek = slot.Media!.Statistics;
         slot.Player.Time = mediaTime;
         if (slot.Meter is not null) { slot.MeterTarget = mediaTime; slot.MeterPending = true; }
-        await WaitUntilAsync(() => Math.Abs(slot.Player.Time - mediaTime) <= 350,
-            slot, TimeSpan.FromSeconds(3), token, $"Seeking in {slot.Asset?.Name} timed out.").ConfigureAwait(false);
+        // VLC updates Time as soon as a seek is queued. Wait for the new decoder
+        // buffering cycle as well, keeping every player paused until all are ready.
+        bool IsSeekReady()
+        {
+            if (Math.Abs(slot.Player.Time - mediaTime) > 350) return false;
+            if (!slot.Player.IsSeekable) return true;
+            if (Interlocked.Read(ref slot.BufferingGeneration) <= bufferingGeneration) return false;
+            if (Volatile.Read(ref slot.Buffering) == 0) return true;
+            // A paused input can exhaust the file before filling its entire cache.
+            // Require settled seek activity and evidence of data, except in the
+            // final container padding; an unchanged Time getter is insufficient.
+            if (slot.Asset!.DurationMs - mediaTime > 1000 || slot.Player.State != VLCState.Paused ||
+                Stopwatch.GetElapsedTime(Interlocked.Read(ref slot.BufferingUpdateStamp)).TotalMilliseconds < 200) return false;
+            if (Volatile.Read(ref slot.BufferingProgress) > 0) return true;
+            // Container padding can extend beyond the final packet. A confirmed
+            // seek into the last 50 ms may therefore have no data left to buffer.
+            if (slot.Asset.DurationMs - mediaTime <= 50) return true;
+            var statistics = slot.Media.Statistics;
+            return slot.IsVideo ? statistics.DecodedVideo > statisticsBeforeSeek.DecodedVideo
+                : statistics.DecodedAudio > statisticsBeforeSeek.DecodedAudio;
+        }
+        await WaitUntilAsync(IsSeekReady, slot, TimeSpan.FromSeconds(8), token,
+            $"Seeking in {slot.Asset?.Name} timed out.").ConfigureAwait(false);
+        Interlocked.Exchange(ref slot.Buffering, 0);
+        await PauseSlotAsync(slot, token).ConfigureAwait(false);
+        slot.PreparedMediaTime = mediaTime;
         slot.ResetSample(slot.Player.Time);
         slot.LastCorrectionStamp = Stopwatch.GetTimestamp();
         slot.DriftCount = 0;
@@ -560,7 +597,9 @@ public sealed partial class PlaybackController : IDisposable
     private void Publish(bool throttle = false)
     {
         long stamp = Stopwatch.GetTimestamp();
-        if (throttle && Stopwatch.GetElapsedTime(_lastPublishStamp, stamp).TotalMilliseconds < 100) return;
+        // Once playback stops there may be no next tick to publish the settled
+        // state. Never leave subscribers showing the preceding busy snapshot.
+        if (throttle && _playing && Stopwatch.GetElapsedTime(_lastPublishStamp, stamp).TotalMilliseconds < 100) return;
         _lastPublishStamp = stamp;
         var position = CurrentPosition();
         Interlocked.Exchange(ref _publishedPosition, position);
@@ -639,8 +678,12 @@ public sealed partial class PlaybackController : IDisposable
         public long MeterTarget;
         public bool Ready;
         public bool Running;
+        public long? PreparedMediaTime;
         public int Failed;
         public int Buffering;
+        public float BufferingProgress;
+        public long BufferingGeneration;
+        public long BufferingUpdateStamp;
         public long BufferingSinceStamp;
         public long BufferingStartTime;
         public long SampleTime;
@@ -663,12 +706,15 @@ public sealed partial class PlaybackController : IDisposable
         private void OnTimeChanged(object? sender, MediaPlayerTimeChangedEventArgs args) => ResetSample(args.Time);
         private void OnBuffering(object? sender, MediaPlayerBufferingEventArgs args)
         {
+            Volatile.Write(ref BufferingProgress, args.Cache);
+            Interlocked.Exchange(ref BufferingUpdateStamp, Stopwatch.GetTimestamp());
             if (args.Cache >= 100)
             {
                 Interlocked.Exchange(ref Buffering, 0);
             }
             else if (Interlocked.Exchange(ref Buffering, 1) == 0)
             {
+                Interlocked.Increment(ref BufferingGeneration);
                 Interlocked.Exchange(ref BufferingSinceStamp, Stopwatch.GetTimestamp());
                 Interlocked.Exchange(ref BufferingStartTime, Interlocked.Read(ref SampleTime));
             }
@@ -702,6 +748,7 @@ public sealed partial class PlaybackController : IDisposable
             Asset = null;
             Ready = false;
             Running = false;
+            PreparedMediaTime = null;
             Interlocked.Exchange(ref Failed, 0);
             Interlocked.Exchange(ref Buffering, 0);
             ResetSample(0);

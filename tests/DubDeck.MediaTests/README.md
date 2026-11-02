@@ -10,18 +10,26 @@ Run from the repository root with a Windows desktop audio session and ffmpeg
 available to generate the developer fixtures:
 
 ```powershell
-./scripts/Generate-Fixtures.ps1 -IncludeSoak
+./scripts/Generate-Fixtures.ps1
 ./.tools/dotnet/dotnet.exe run --project tests/DubDeck.MediaTests -c Release -- --initialize-vlc-cache
 ./.tools/dotnet/dotnet.exe run --project tests/DubDeck.MediaTests -c Release
+./scripts/Generate-Fixtures.ps1 -IncludeSoak
 ./.tools/dotnet/dotnet.exe run --project tests/DubDeck.MediaTests -c Release -- --soak
 ```
 
 The smoke run covers MP4, MOV, MKV, MP3, WAV, M4A and FLAC imports and actual
 native decode/output; corrupt and missing paths; pause/resume and paused/playing
-seeks; rapid seeks; gaps and adjacent video transitions; overlapping audio and
+seeks; repeated forward/backward scrubbing with a 100 ms bound on the difference
+between sampled native clock offsets; paused seeks at the last 1000, 500, 100, and 1 ms
+of each codec; delayed audio waveforms; activity recovery after a shorter audio
+stream ends; gaps and adjacent video transitions; overlapping audio and
 its tail after video ends; track/master gain and mute; project end and stop.
 Coordinated preroll can freeze the common transport while newly starting files
 become ready, so boundary checks allow bounded native readiness waits.
+
+`--seek-only` runs the import and transport regressions, including scrubbing and
+file-end seeks. `--tail-only` runs just codec imports and file-end seeks.
+Standard fixtures suffice for these checks.
 
 `--soak` adds ten real minutes with one video and two independent audio players.
 Each second records the common transport, raw native timestamps, extrapolated

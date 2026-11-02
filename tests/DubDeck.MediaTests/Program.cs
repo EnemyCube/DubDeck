@@ -102,6 +102,11 @@ internal sealed class MediaSuite
                     Require(waveform is not null && waveform.PeakBetween(0, entry.Value.DurationMs) > .02,
                         entry.Key + ": real PCM did not produce visible waveform peaks");
                 }
+                var delayedAsset = await engine.ProbeAsync(Fixture("delayed-audio.mkv"));
+                var delayed = await waveforms.GetAsync(delayedAsset.FilePath, delayedAsset.DurationMs);
+                Require(delayed is not null && delayed.PeakBetween(0, 1800) < .001 &&
+                    delayed.PeakBetween(2100, 2900) > .02 && delayed.PeakBetween(3200, 5000) < .001,
+                    "Waveform moved a delayed audio stream to the start of its video");
                 int decodes = waveforms.DecodeCount;
                 var first = _assets["audio.wav"];
                 var cached = await waveforms.GetAsync(first.FilePath, first.DurationMs);
@@ -149,7 +154,7 @@ internal sealed class MediaSuite
                 canceled.Cancel();
                 try { await waveforms.GetAsync(first.FilePath, first.DurationMs, canceled.Token); throw new InvalidOperationException("Canceled waveform request was accepted"); }
                 catch (OperationCanceledException) { }
-                string pulse = Fixture("pulse-10min.mp4");
+                string pulse = Path.Combine(_fixtures, "pulse-10min.mp4");
                 if (File.Exists(pulse))
                 {
                     using var activeCancellation = new CancellationTokenSource();
@@ -207,7 +212,10 @@ internal sealed class MediaSuite
             TimelineRules.Validate(project);
             await Check("Paused seek and real native playback", async () =>
             {
-                await _controller.SetProjectAsync(project);
+                await _controller.SetProjectAsync(project, startPositionMs: 2500);
+                await _controller.SetProjectAsync(project, startPositionMs: 3500);
+                Require(_controller.Diagnostics.All(d => Math.Abs(d.NativeMediaTimeMs - d.ExpectedMediaTimeMs) <= 350),
+                    "Reloading the same active clips ignored the requested start position");
                 await _controller.SeekAsync(1000);
                 Require(!_controller.IsPlaying, "Seek started playback while paused");
                 Near(_controller.PositionMs, 1000, 100, "Paused transport seek");
@@ -253,7 +261,81 @@ internal sealed class MediaSuite
                 Require(_controller.Diagnostics.Count == 3, "Rapid seeks left stale/missing players");
                 AssertHealthy();
             });
-            await Check("Immediate native volume and mute updates", async () =>
+            await Check("Seeks near media ends finish without hanging", async () =>
+            {
+                foreach (var asset in _assets.Values)
+                {
+                    Console.WriteLine($"  End seeks: {asset.Name}");
+                    var track = new TimelineTrack { Id = asset.HasVideo ? "video" : "audio", Kind = asset.HasVideo ? TrackKind.Video : TrackKind.Audio };
+                    var tailProject = new ProjectDocument { MasterMuted = true, Assets = [asset],
+                        Clips = [new() { AssetId = asset.Id, TrackId = track.Id }] };
+                    if (!asset.HasVideo) tailProject.Tracks.Add(track);
+                    await _controller.SetProjectAsync(tailProject, startPositionMs: 0);
+                    foreach (long remaining in new long[] { 1000, 500, 100, 1 })
+                    {
+                        await _controller.SeekAsync(asset.DurationMs - remaining);
+                        AssertHealthy();
+                        Require(!_controller.IsPlaying, "A paused tail seek started playback");
+                        Near(_controller.PositionMs, asset.DurationMs - remaining, 25, "Tail seek position");
+                    }
+                    await _controller.PlayAsync();
+                    await Until(() => !_controller.IsPlaying && _status?.IsBusy == false, TimeSpan.FromSeconds(3), "Playback did not finish after the tail seek");
+                    AssertHealthy();
+                }
+                await _controller.SetProjectAsync(project, startPositionMs: 2500);
+            });
+            await Check("Scrubbing keeps embedded and external audio synchronized", async () =>
+            {
+                var video = await engine.ProbeAsync(Fixture("seek-sync.mp4"));
+                var audio = await engine.ProbeAsync(Fixture("seek-sync.flac"));
+                var scrubProject = new ProjectDocument { MasterMuted = true, Assets = [video, audio],
+                    Tracks = [new() { Id = "video", Kind = TrackKind.Video }, new() { Id = "audio", Kind = TrackKind.Audio }],
+                    Clips = [new() { AssetId = video.Id, TrackId = "video" },
+                        new() { AssetId = audio.Id, TrackId = "audio", StartMs = 1200 }] };
+                await _controller.SetProjectAsync(scrubProject, startPositionMs: 5000);
+                await _controller.PlayAsync();
+                foreach (long target in new long[] { 8500, 2100, 2180, 2100, 30000, 12000, 1300, 4500 })
+                {
+                    await _controller.SeekAsync(target);
+                    var before = _controller.Diagnostics.ToDictionary(d => d.TrackId);
+                    await Task.Delay(650);
+                    AssertHealthy();
+                    Require(_controller.IsPlaying, "Scrubbing stopped playback");
+                    var samples = _controller.Diagnostics;
+                    Require(samples.Count == 2, "Scrubbing lost an active player");
+                    Require(samples.All(d => d.PlayedAudioBuffers > before[d.TrackId].PlayedAudioBuffers),
+                        "A source stopped outputting audio after scrubbing");
+                    Require(samples.Single(d => d.IsVideo).DisplayedPictures > before["video"].DisplayedPictures,
+                        "Video stopped presenting frames after scrubbing");
+                    var offsets = samples.Select(d => d.EstimatedMediaTimeMs - d.ExpectedMediaTimeMs).ToArray();
+                    Console.WriteLine($"  Scrub {target}: " + string.Join("; ", samples.Select(d =>
+                        $"{d.TrackId} native={d.NativeMediaTimeMs}, expected={d.ExpectedMediaTimeMs}, estimated drift={d.EstimatedMediaTimeMs - d.ExpectedMediaTimeMs}")));
+                    Require(offsets.All(d => Math.Abs(d) <= 350), "A decoder did not reach the scrubbed timeline position");
+                    Require(offsets.Max() - offsets.Min() <= 100, "Embedded and external audio clocks diverged after scrubbing");
+                }
+                var pending = new List<Task>();
+                foreach (long target in new long[] { 26000, 9000, 15000, 2000, 10000 })
+                {
+                    pending.Add(_controller.SeekAsync(target));
+                    await Task.Delay(85);
+                }
+                await Task.WhenAll(pending);
+                var beforeFinal = _controller.Diagnostics.ToDictionary(d => d.TrackId);
+                await Task.Delay(650);
+                AssertHealthy();
+                var final = _controller.Diagnostics;
+                Require(_controller.IsPlaying && final.All(d => d.PlayedAudioBuffers > beforeFinal[d.TrackId].PlayedAudioBuffers) &&
+                    final.Single(d => d.IsVideo).DisplayedPictures > beforeFinal["video"].DisplayedPictures,
+                    "Canceled scrub requests stopped native output");
+                Require(final.Count == 2 && final.All(d => Math.Abs(d.EstimatedMediaTimeMs - d.ExpectedMediaTimeMs) <= 350),
+                    "Canceled scrub requests left a decoder at an old position");
+                var finalOffsets = final.Select(d => d.EstimatedMediaTimeMs - d.ExpectedMediaTimeMs).ToArray();
+                Require(finalOffsets.Max() - finalOffsets.Min() <= 100,
+                    "Canceled scrub requests left embedded and external audio out of sync");
+                await _controller.PauseAsync();
+                await _controller.SetProjectAsync(project, startPositionMs: 2500);
+            });
+            await Check("Native volume and mute updates", async () =>
             {
                 // Paused playback makes nonzero gain checks silent.
                 project.MasterMuted = false;
@@ -270,12 +352,17 @@ internal sealed class MediaSuite
                 Require(_controller.Diagnostics.All(x => !x.IsMuted), "Unmuted playback did not restore native output");
                 project.Tracks[1].IsMuted = true;
                 await _controller.UpdateVolumeAsync(project);
+                // The output can still be completing its asynchronous resume. Check
+                // the published native acknowledgement within a bounded interval.
+                await Until(() => _controller.Diagnostics.Any(x => x.TrackId == "audio-one" && (x.IsMuted || x.Volume == 0)),
+                    TimeSpan.FromMilliseconds(500), "Track mute did not settle after native output resumed");
                 var muted = _controller.Diagnostics.Single(x => x.TrackId == "audio-one");
                 Require(muted.IsMuted || muted.Volume == 0, "Track mute did not reach native player");
                 Require(!_controller.Diagnostics.Single(x => x.TrackId == "audio-two").IsMuted, "Muting one audio track muted another");
                 project.MasterMuted = true;
                 await _controller.UpdateVolumeAsync(project);
-                Require(_controller.Diagnostics.All(x => x.IsMuted || x.Volume == 0), "Master mute did not reach every player");
+                await Until(() => _controller.Diagnostics.All(x => x.IsMuted || x.Volume == 0),
+                    TimeSpan.FromMilliseconds(500), "Master mute did not reach every player");
                 await _controller.PauseAsync();
             });
             await Check("Audio tail, end of project, stop and return to start", async () =>
@@ -448,6 +535,32 @@ internal sealed class MediaSuite
                 project.AutoDuckingEnabled=false; await _controller.UpdateVolumeAsync(project);
                 await Task.Delay(600);
                 Require(_controller.Diagnostics.Single(d=>d.TrackId=="bed").Volume==100,"Disabling ducking did not restore the bed");
+                await _controller.StopAsync();
+            });
+            await Check("Backward seeks restore ducking after a source audio stream ends", async () =>
+            {
+                var voice = await engine.ProbeAsync(Fixture("voice-steady.wav"));
+                var video = await engine.ProbeAsync(Fixture("short-audio.mkv"));
+                var project = new ProjectDocument { MasterMuted = true, AutoDuckingEnabled = true, DuckAmount = 60,
+                    Assets = [voice, video],
+                    Tracks = [new() { Id = "video", Kind = TrackKind.Video },
+                        new() { Id = "voice", Kind = TrackKind.Audio, IsDuckingSource = true }],
+                    Clips = [new() { AssetId = voice.Id, TrackId = "voice" }, new() { AssetId = video.Id, TrackId = "video" }] };
+                await _controller.SetProjectAsync(project, startPositionMs: 0);
+                await _controller.PlayAsync();
+                await Until(() => _controller.Diagnostics.Any(d => d.IsVideo && d.Volume <= 42),
+                    TimeSpan.FromSeconds(3), "The initial video audio did not duck under commentary");
+                await Until(() => _controller.PositionMs >= 1900, TimeSpan.FromSeconds(3));
+                var audioTail = _controller.Diagnostics.Single(d => d.IsVideo);
+                Require(audioTail.ActivityDb > -30 && audioTail.Volume <= 42,
+                    "The activity tap discarded the final queued audio before its stream ended");
+                await Until(() => _controller.PositionMs >= 4500, TimeSpan.FromSeconds(6));
+                Require(_controller.Diagnostics.Single(d => d.IsVideo).ActivityDb < -100,
+                    "The shorter audio stream did not reach its silent tail");
+                await _controller.SeekAsync(500);
+                await Until(() => _controller.Diagnostics.Any(d => d.IsVideo && d.ActivityDb > -30 && d.Volume <= 42),
+                    TimeSpan.FromSeconds(3), "Backward seek left the completed activity decoder stopped");
+                AssertHealthy();
                 await _controller.StopAsync();
             });
             await Check("Voice activity preserves quiet video while commentary stays loud", async () =>
@@ -640,8 +753,10 @@ internal sealed class MediaSuite
 
     private async Task Check(string name, Func<Task> action)
     {
+        if (_args.Contains("--tail-only") && !name.StartsWith("Seven") && !name.StartsWith("Seeks near")) return;
+        if (_args.Contains("--seek-only") && !name.StartsWith("Seven") && !name.StartsWith("Scrubbing") && !name.StartsWith("Seeks near") && !name.StartsWith("Paused seek") && !name.StartsWith("Rapid seeks") && !name.StartsWith("Playing seek")) return;
         if (_args.Contains("--waveform-only") && !name.StartsWith("Seven") && !name.StartsWith("Waveform")) return;
-        if (_args.Contains("--mixer-only") && !name.StartsWith("Seven") && !name.StartsWith("Track pause") && !name.StartsWith("Voice activity") && !name.StartsWith("Automatic level")) return;
+        if (_args.Contains("--mixer-only") && !name.StartsWith("Seven") && !name.StartsWith("Track pause") && !name.StartsWith("Voice activity") && !name.StartsWith("Backward seeks") && !name.StartsWith("Automatic level")) return;
         Console.WriteLine($"RUN: {name}");
         var timer = Stopwatch.StartNew();
         try

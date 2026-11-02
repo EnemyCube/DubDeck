@@ -25,7 +25,8 @@ var tests = new (string Name, Action Run)[]
     ("Absolute fallback finds media after moving only the project", AbsoluteFallback),
     ("Offline entries survive loading and can be relinked", OfflineRelinking),
     ("Invalid project files fail with useful errors", InvalidFiles),
-    ("Subtitle choices and portable sidecars round-trip", SubtitlePreferences)
+    ("Subtitle choices and portable sidecars round-trip", SubtitlePreferences),
+    ("Retained subtitle paths stay valid in every subtitle mode", SubtitlePathValidation)
 };
 var failures = 0;
 foreach (var (name, run) in tests)
@@ -517,6 +518,26 @@ static void BrandedProjects()
     var loaded = ProjectStore.Load(current);
     Equal(document.Clips.Count, loaded.Clips.Count);
     Equal(750L, loaded.PlayheadMs);
+}
+static void SubtitlePathValidation()
+{
+    using var files = new TestFiles();
+    var path = Path.Combine(files.Folder, "Subtitles.dubdeck");
+    var project = Fixture(files.Folder);
+    project.Assets[0].Subtitles = SubtitleMode.Off;
+    project.Assets[0].SubtitleFilePath = Path.Combine(files.Folder, "Picture.en.srt");
+    ProjectStore.Save(project, path);
+    Equal(project.Assets[0].SubtitleFilePath, ProjectStore.Load(path).Assets[0].SubtitleFilePath);
+    var saved = File.ReadAllText(path);
+    foreach (var mode in Enum.GetValues<SubtitleMode>())
+        foreach (var invalidPath in new[] { "", "relative.srt", Path.Combine(files.Folder, "Bad\0.srt") })
+        {
+            project.Assets[0].Subtitles = mode;
+            project.Assets[0].SubtitleTrackIndex = 0;
+            project.Assets[0].SubtitleFilePath = invalidPath;
+            Throws<InvalidDataException>(() => ProjectStore.Save(project, path));
+            Equal(saved, File.ReadAllText(path));
+        }
 }
 sealed class TestFiles : IDisposable
 {

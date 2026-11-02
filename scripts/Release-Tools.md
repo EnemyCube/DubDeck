@@ -8,6 +8,10 @@ These tracked helpers retain the reusable logic previously stored in version-spe
 - Snapshot-Source.py records the current source tree, including untracked source files and excluding deleted files.
 - Verify-Release.py verifies downloaded/stored release assets from their manifest without requiring an expanded folder copy.
 
+Run the release-tool regressions against disposable synthetic artifacts:
+
+    python scripts/Test-ReleaseTools.py
+
 Generate fixtures before native/desktop tests:
 
     ./scripts/Generate-Fixtures.ps1 -IncludeSoak
