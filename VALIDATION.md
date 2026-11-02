@@ -1,6 +1,6 @@
 # DubDeck 1.8.3 release validation
 
-Validated on 2026-11-02 for Windows 11 x64. Both editions include .NET and VLC for offline use. Release publication is authorized and pending the final upload verification.
+Validated on 2026-11-02 for Windows 11 x64. Both editions include .NET and VLC for offline use. Published as [DubDeck 1.8.3](https://github.com/EnemyCube/DubDeck/releases/tag/v1.8.3). The portable EXE, folder ZIP, and SHA256SUMS.txt were downloaded from GitHub and verified against the local release; ZIP CRCs also pass.
 
 The release fixes timeline scrub synchronization between embedded video audio and external audio, seeks near media ends, final playback status, pending seek positions, initial playback positions, ducking after backward seeks, audio tails, delayed audio waveforms, and retained subtitle-path validation. Release tools now verify source file sets, preserve checks under optimized Python, and reject accidental package overwrites.
 
@@ -35,3 +35,5 @@ Local evidence: artifacts/release-1.8.3-validation/ contains build logs, native 
 Recheck with:
 
     python scripts/Verify-Release.py --check-source
+
+Publication tag v1.8.3 resolves to 9a8203a2652cc2500ee31dd2edb392fe7974fb5f. GitHub upload digests and fresh download hashes match; github-publication.json records the publication evidence.
